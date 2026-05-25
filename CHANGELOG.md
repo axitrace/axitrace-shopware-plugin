@@ -7,11 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-05-25
+## [0.1.2] - 2026-05-25
 
 ### Fixed
 
-- Widen Symfony constraint from `^7.1` to `^6.4 || ^7.0` for `symfony/uid` and `symfony/http-client` so the plugin installs cleanly on Shopware 6.6.x (ships Symfony 6.4) in addition to Shopware 6.7+ (ships Symfony 7).
+- Drop `symfony/uid` requirement entirely — Shopware's Plugin Requirements Validator rejects installs that require packages not present in Shopware's `composer.lock`. `symfony/uid` is not shipped with Shopware. `UuidV5Generator` now uses self-contained raw SHA-1 (RFC 4122 §4.3) — same byte-identical algorithm as the AxiTrace Magento plugin, with cross-language parity tests against the Go counterpart.
+- Drop `symfony/http-client` requirement — `HttpClientInterface` is already autoloadable via Shopware's transitive dependencies; declaring it as a direct require failed the same validator.
+
+## [0.1.1] - 2026-05-25
+
+### Changed
+
+- Widen Symfony constraint from `^7.1` to `^6.4 || ^7.0` (superseded by v0.1.2 — both requirements removed entirely).
 
 ## [0.1.0] - 2026-05-25
 
@@ -24,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for Facebook CAPI, TikTok Events API, Google Ads offline conversions, and GA4 — relayed through the AxiTrace ingestion endpoint.
 - Cookie consent bridge: event forwarding honours Shopify/CookieBot consent signals via the AxiTrace JS SDK cookie (`_axi_consent`).
 
-[Unreleased]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/axitrace/axitrace-shopware-plugin/releases/tag/v0.1.0
