@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-05-25
+
+### Fixed
+
+- **Critical:** `OrderPaidSubscriber::onOrderPaid` was type-hinted with `StateMachineStateChangeEvent` but Shopware dispatches the concrete subclass `OrderStateMachineStateChangeEvent` for `state_enter.order_transaction.state.paid`. PHP raised a TypeError BEFORE the try/catch could fire, causing the admin's "mark transaction paid" API call to return HTTP 500 (state-machine transition succeeded but plugin failed). Subscriber now type-hints `OrderStateMachineStateChangeEvent` and reads `getOrderId()` + `getOrder()` directly — eliminating the now-unnecessary two-step transaction→order lookup. The `order_transaction.repository` constructor argument is removed (services.xml updated accordingly).
+- Verified end-to-end against dockware 6.6.10.5 + production ingestion-api: storefront order → admin "mark paid" → ingestion-api receives `transaction.charge` event with HTTP 202.
+
 ## [0.1.2] - 2026-05-25
 
 ### Fixed
@@ -31,7 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for Facebook CAPI, TikTok Events API, Google Ads offline conversions, and GA4 — relayed through the AxiTrace ingestion endpoint.
 - Cookie consent bridge: event forwarding honours Shopify/CookieBot consent signals via the AxiTrace JS SDK cookie (`_axi_consent`).
 
-[Unreleased]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/axitrace/axitrace-shopware-plugin/releases/tag/v0.1.0

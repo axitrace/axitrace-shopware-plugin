@@ -68,7 +68,6 @@
             <argument type="service" id="AxitraceShopware6\Normalizer\OrderEventNormalizer"/>
             <argument type="service" id="AxitraceShopware6\EventId\UuidV5Generator"/>
             <argument type="service" id="order.repository"/>
-            <argument type="service" id="order_transaction.repository"/>
             <argument type="service" id="axitrace_failed_event_log.repository"/>
             <argument type="service" id="logger"/>
             <tag name="kernel.event_subscriber"/>

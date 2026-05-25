@@ -22,6 +22,15 @@
             <helpText lang="de-DE">Zu finden unter axitrace.com → Workspace → Keys. Wird verschlüsselt gespeichert.</helpText>
         </input-field>
 
+        <input-field type="text">
+            <name>trackingDomain</name>
+            <label>Custom tracking domain (optional)</label>
+            <label lang="de-DE">Eigene Tracking-Domain (optional)</label>
+            <placeholder>pixel.yourstore.com</placeholder>
+            <helpText>Optional: enter your own subdomain (e.g. pixel.yourstore.com) that you have CNAME'd to stat.axitrace.com. The browser SDK will then load from your domain, placing cookies as first-party for improved tracking accuracy on iOS/Safari. Leave empty to use stat.axitrace.com (works for everyone).</helpText>
+            <helpText lang="de-DE">Optional: Geben Sie Ihre eigene Subdomain ein (z. B. pixel.ihrshop.de), die per CNAME auf stat.axitrace.com verweist. Das Browser-SDK wird dann von Ihrer Domain geladen, sodass Cookies als First-Party gesetzt werden — verbessert das Tracking auf iOS/Safari. Leer lassen, um stat.axitrace.com zu verwenden (funktioniert für alle).</helpText>
+        </input-field>
+
         <input-field type="bool">
             <name>debugMode</name>
             <label>Debug mode</label>

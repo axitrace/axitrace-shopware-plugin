@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace AxitraceShopware6\Subscriber;
 
 use AxitraceShopware6\Config\PluginConfig;
-use AxitraceShopware6\HttpClient\IngestionApiClient;
 use Shopware\Storefront\Event\StorefrontRenderEvent;
 use Shopware\Storefront\Page\Product\ProductPage;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
@@ -18,7 +17,8 @@ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
  */
 final class StorefrontSubscriber implements EventSubscriberInterface
 {
-    private const SDK_SCRIPT_URL = 'https://stat.axitrace.com/axitrack.js';
+    /** Default tracking domain when the merchant has not configured a CNAME. */
+    private const DEFAULT_TRACKING_DOMAIN = 'stat.axitrace.com';
 
     public function __construct(
         private readonly PluginConfig $config,
@@ -58,9 +58,20 @@ final class StorefrontSubscriber implements EventSubscriberInterface
             default                        => 'page',
         };
 
+        // Browser SDK domain — defaults to stat.axitrace.com.  When the merchant
+        // has configured a custom tracking domain (CNAME → stat.axitrace.com),
+        // the SDK is loaded from their domain so that cookies (vt_vid, vt_sid,
+        // vt_uid) land as first-party.  Server-side dispatch (IngestionApiClient)
+        // always hits stat.axitrace.com regardless — see SSRF mitigation note.
+        $trackingDomain = $this->config->getTrackingDomain($salesChannelId);
+        if ($trackingDomain === '') {
+            $trackingDomain = self::DEFAULT_TRACKING_DOMAIN;
+        }
+        $sdkBaseUrl = 'https://' . $trackingDomain;
+
         $config = [
             'publicKey'       => $publicKey,
-            'apiUrl'          => IngestionApiClient::DEFAULT_API_BASE_URL,
+            'apiUrl'          => $sdkBaseUrl,
             'pageType'        => $pageType,
             'consentRequired' => true,
         ];
@@ -71,7 +82,7 @@ final class StorefrontSubscriber implements EventSubscriberInterface
         }
 
         $event->setParameter('axitraceConfig', $config);
-        $event->setParameter('axitraceScriptUrl', self::SDK_SCRIPT_URL);
+        $event->setParameter('axitraceScriptUrl', $sdkBaseUrl . '/axitrack.js');
 
         $this->injectProductContext($event, $salesChannelId);
     }

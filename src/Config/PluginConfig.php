@@ -141,6 +141,47 @@ final class PluginConfig
         );
     }
 
+    /**
+     * Returns the merchant-preferred tracking domain for the browser SDK, or
+     * empty string when not configured. Pattern: an apex-or-subdomain (no
+     * scheme, no path, no port). Examples: "stat.axitrace.com",
+     * "pixel.customer.com".
+     *
+     * When configured, the StorefrontSubscriber loads `axitrack.js` from
+     * `https://{tracking_domain}/axitrack.js` and sets the browser SDK's
+     * `apiUrl` to `https://{tracking_domain}`, enabling first-party cookie
+     * placement via the customer's CNAME (CNAME → stat.axitrace.com).
+     *
+     * Server-side dispatch always uses the hardcoded `stat.axitrace.com` —
+     * the tracking_domain field has no effect on `IngestionApiClient` (SSRF
+     * mitigation). The two paths are independent.
+     */
+    public function getTrackingDomain(?string $salesChannelId = null): string
+    {
+        $raw = (string) $this->systemConfigService->get(
+            self::CONFIG_DOMAIN . 'trackingDomain',
+            $salesChannelId,
+        );
+
+        $domain = strtolower(trim($raw));
+
+        // Strip any protocol the merchant may have accidentally pasted.
+        $domain = preg_replace('#^https?://#', '', $domain) ?? '';
+        // Strip trailing slash / path.
+        $domain = explode('/', $domain, 2)[0];
+
+        // Allowlist pattern: only DNS-valid hostnames (no port, no path).
+        if ($domain !== '' && preg_match('/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/', $domain) !== 1) {
+            $this->logger->critical(
+                'AxiTrace: trackingDomain failed format validation, falling back to default',
+                ['sales_channel_id' => $salesChannelId, 'raw' => $domain],
+            );
+            return '';
+        }
+
+        return $domain;
+    }
+
     // -------------------------------------------------------------------------
     // Runtime failure counters (written by event dispatch, read by admin UI)
     // -------------------------------------------------------------------------
