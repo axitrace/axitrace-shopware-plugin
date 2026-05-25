@@ -1,0 +1,79 @@
+<?xml version="1.0" ?>
+<container xmlns="http://symfony.com/schema/dic/services"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://symfony.com/schema/dic/services
+               http://symfony.com/schema/dic/services/services-1.0.xsd">
+
+    <services>
+
+        <!-- AxitraceCrypto: AES-256-GCM key derived from APP_SECRET -->
+        <service id="AxitraceShopware6\Config\AxitraceCrypto">
+            <argument>%env(APP_SECRET)%</argument>
+        </service>
+
+        <!-- PluginConfig: per-Sales-Channel settings facade -->
+        <service id="AxitraceShopware6\Config\PluginConfig">
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <argument type="service" id="AxitraceShopware6\Config\AxitraceCrypto"/>
+            <argument type="service" id="logger"/>
+        </service>
+
+        <!-- IngestionApiClient: Symfony HttpClient-based event sender with SSRF guard -->
+        <service id="AxitraceShopware6\HttpClient\IngestionApiClient">
+            <argument type="service" id="http_client"/>
+            <argument type="service" id="logger"/>
+            <argument>%env(default::AXITRACE_API_BASE_URL)%</argument>
+        </service>
+
+        <!-- StorefrontSubscriber: injects AxiTrace SDK config into every storefront page -->
+        <service id="AxitraceShopware6\Subscriber\StorefrontSubscriber">
+            <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
+            <tag name="kernel.event_subscriber"/>
+        </service>
+
+        <!-- Cookie consent decorator: registers vt_vid / vt_sid / vt_uid in the SW consent manager -->
+        <service id="AxitraceShopware6\CookieConsent\AxiTraceCookieProvider"
+                 decorates="Shopware\Storefront\Framework\Cookie\CookieProviderInterface">
+            <argument type="service" id=".inner"/>
+        </service>
+
+        <!-- Failed event DAL entity definition -->
+        <service id="AxitraceShopware6\Entity\AxitraceFailedEventDefinition">
+            <tag name="shopware.entity.definition" entity="axitrace_failed_event_log"/>
+        </service>
+
+        <!-- Scheduled task: retry failed events every 15 minutes -->
+        <service id="AxitraceShopware6\ScheduledTask\AxitraceRetryFailedEventsTask">
+            <tag name="shopware.scheduled.task"/>
+        </service>
+
+        <!-- Scheduled task handler (AsMessageHandler attribute wires the message type) -->
+        <service id="AxitraceShopware6\ScheduledTask\AxitraceRetryFailedEventsHandler">
+            <argument type="service" id="axitrace_failed_event_log.repository"/>
+            <argument type="service" id="AxitraceShopware6\HttpClient\IngestionApiClient"/>
+            <argument type="service" id="logger"/>
+            <tag name="messenger.message_handler"/>
+        </service>
+
+        <!-- UuidV5Generator: pure mapper, no deps -->
+        <service id="AxitraceShopware6\EventId\UuidV5Generator"/>
+
+        <!-- OrderEventNormalizer: pure mapper, no deps -->
+        <service id="AxitraceShopware6\Normalizer\OrderEventNormalizer"/>
+
+        <!-- OrderPaidSubscriber: server-side purchase event -->
+        <service id="AxitraceShopware6\Subscriber\OrderPaidSubscriber">
+            <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
+            <argument type="service" id="AxitraceShopware6\HttpClient\IngestionApiClient"/>
+            <argument type="service" id="AxitraceShopware6\Normalizer\OrderEventNormalizer"/>
+            <argument type="service" id="AxitraceShopware6\EventId\UuidV5Generator"/>
+            <argument type="service" id="order.repository"/>
+            <argument type="service" id="order_transaction.repository"/>
+            <argument type="service" id="axitrace_failed_event_log.repository"/>
+            <argument type="service" id="logger"/>
+            <tag name="kernel.event_subscriber"/>
+        </service>
+
+    </services>
+
+</container>

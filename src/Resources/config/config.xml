@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/shopware/platform/trunk/src/Core/System/SystemConfig/Schema/config.xsd">
+    <card>
+        <title>AxiTrace Tracking</title>
+        <title lang="de-DE">AxiTrace Tracking</title>
+
+        <input-field type="bool">
+            <name>enabled</name>
+            <label>Enabled</label>
+            <label lang="de-DE">Aktiviert</label>
+            <defaultValue>true</defaultValue>
+            <helpText>Master switch — when off, the plugin captures no events.</helpText>
+            <helpText lang="de-DE">Hauptschalter — wenn deaktiviert, erfasst das Plugin keine Ereignisse.</helpText>
+        </input-field>
+
+        <input-field type="password">
+            <name>publicKey</name>
+            <label>AxiTrace Public Key (pk_live_...)</label>
+            <label lang="de-DE">AxiTrace Public Key (pk_live_...)</label>
+            <helpText>Find this in axitrace.com → Workspace → Keys. Stored encrypted at rest.</helpText>
+            <helpText lang="de-DE">Zu finden unter axitrace.com → Workspace → Keys. Wird verschlüsselt gespeichert.</helpText>
+        </input-field>
+
+        <input-field type="bool">
+            <name>debugMode</name>
+            <label>Debug mode</label>
+            <label lang="de-DE">Debug-Modus</label>
+            <defaultValue>false</defaultValue>
+            <helpText>Verbose SDK console logs in browser. Disable in production.</helpText>
+            <helpText lang="de-DE">Ausführliche SDK-Konsolenausgabe im Browser. In der Produktion deaktivieren.</helpText>
+        </input-field>
+    </card>
+</config>

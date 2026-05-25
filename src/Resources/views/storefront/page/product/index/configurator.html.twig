@@ -1,0 +1,10 @@
+{% sw_extends '@Storefront/storefront/page/product/index/configurator.html.twig' %}
+
+{% block page_product_detail_configurator_content %}
+    {{ parent() }}
+    {% if axitraceProductContext is defined and axitraceProductContext is not null %}
+        <script type="application/json" id="axitrace-product-context">
+            {{ axitraceProductContext | json_encode(960) | raw }}
+        </script>
+    {% endif %}
+{% endblock %}

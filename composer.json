@@ -1,0 +1,59 @@
+{
+    "name": "axitrace/shopware6-tracking",
+    "description": "AxiTrace server-side conversion tracking for Shopware 6",
+    "type": "shopware-platform-plugin",
+    "license": "MIT",
+    "version": "0.1.0",
+    "authors": [
+        {
+            "name": "AxiTrace",
+            "email": "info@axitrace.com"
+        }
+    ],
+    "homepage": "https://axitrace.com/integrations/shopware",
+    "support": {
+        "docs": "https://axitrace.com/docs/integrations/shopware",
+        "issues": "https://github.com/axitrace/axitrace-shopware-plugin/issues"
+    },
+    "require": {
+        "php": "^8.2 || ^8.3 || ^8.4",
+        "shopware/core": ">=6.6.8 <7.0.0",
+        "symfony/uid": "^7.1",
+        "symfony/http-client": "^7.1",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "AxitraceShopware6\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "AxitraceShopware6\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "shopware-plugin-class": "AxitraceShopware6\\AxitraceShopware6",
+        "label": {
+            "en-GB": "AxiTrace Tracking",
+            "de-DE": "AxiTrace Tracking"
+        },
+        "description": {
+            "en-GB": "Server-side conversion tracking for Facebook CAPI, TikTok Events API, Google Ads, GA4"
+        },
+        "manufacturerLink": {
+            "en-GB": "https://axitrace.com"
+        },
+        "supportLink": {
+            "en-GB": "https://axitrace.com/docs/integrations/shopware"
+        },
+        "pluginIcon": "src/Resources/config/plugin.png"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}

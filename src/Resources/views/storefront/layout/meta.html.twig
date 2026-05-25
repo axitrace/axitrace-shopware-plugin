@@ -1,0 +1,11 @@
+{% sw_extends '@Storefront/storefront/layout/meta.html.twig' %}
+
+{% block layout_head_javascript_tracking %}
+    {{ parent() }}
+    {% if axitraceConfig is defined and axitraceConfig.publicKey is not empty %}
+        <script type="application/json" id="axitrace-config">
+            {{ axitraceConfig | json_encode(960) | raw }}
+        </script>
+        <script defer src="{{ axitraceScriptUrl }}" data-axitrace-sdk="1"></script>
+    {% endif %}
+{% endblock %}
