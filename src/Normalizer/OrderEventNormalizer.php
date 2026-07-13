@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AxitraceShopware6\Normalizer;
 
+use AxitraceShopware6\Subscriber\OrderPlacedSubscriber;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Core\Checkout\Order\OrderEntity;
 
@@ -20,7 +21,8 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  *       client: { email, phone },
  *       products: [{ productId, sku, name, quantity, price, currency }],
  *       revenue: { amount, currency },
- *       value: { amount, currency }
+ *       value: { amount, currency },
+ *       fbp?: string, fbc?: string   // present only when captured at order placement
  *     }
  *   }
  *
@@ -39,11 +41,15 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  * Required associations to load before calling normalize():
  *   currency, billingAddress, billingAddress.country, orderCustomer, lineItems
  *
+ * fbp/fbc: read from $order->getCustomFields() (a base scalar field, always
+ * hydrated — no addAssociation() needed), written by OrderPlacedSubscriber at
+ * order-placement time.
+ *
  * This is a pure mapper — no constructor dependencies, no side effects.
  */
 final class OrderEventNormalizer
 {
-    private const PLUGIN_VERSION = '0.1.0';
+    private const PLUGIN_VERSION = '0.1.4';
     private const SDK_VERSION    = 'shopware-1.0';
     private const SOURCE         = 'shopware';
 
@@ -88,6 +94,31 @@ final class OrderEventNormalizer
             'currency' => $orderCurrency,
         ];
 
+        $data = [
+            'client' => [
+                'email' => $orderCustomer !== null ? (string) $orderCustomer->getEmail() : '',
+                'phone' => $billing !== null ? (string) $billing->getPhoneNumber() : '',
+            ],
+            'products' => $products,
+            'revenue'  => $money,
+            'value'    => $money,
+        ];
+
+        // Captured at order placement by OrderPlacedSubscriber (request-scoped — the
+        // "paid" transition that triggers this normalizer runs asynchronously for many
+        // payment methods and has no cookie access). Omitted entirely when absent so
+        // the payload is byte-identical to today for stores without their own Meta Pixel.
+        $customFields = $order->getCustomFields() ?? [];
+        $fbp = (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_FBP] ?? '');
+        $fbc = (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_FBC] ?? '');
+
+        if ($fbp !== '') {
+            $data['fbp'] = $fbp;
+        }
+        if ($fbc !== '') {
+            $data['fbc'] = $fbc;
+        }
+
         return [
             'event'                 => 'transaction.charge',
             'eventSalt'             => $eventId,
@@ -106,15 +137,7 @@ final class OrderEventNormalizer
             'billingCity'           => $billing !== null ? (string) $billing->getCity() : '',
             'billingCountry'        => $billing?->getCountry()?->getIso() ?? '',
             'billingZip'            => $billing !== null ? (string) $billing->getZipcode() : '',
-            'data' => [
-                'client' => [
-                    'email' => $orderCustomer !== null ? (string) $orderCustomer->getEmail() : '',
-                    'phone' => $billing !== null ? (string) $billing->getPhoneNumber() : '',
-                ],
-                'products' => $products,
-                'revenue'  => $money,
-                'value'    => $money,
-            ],
+            'data'                  => $data,
         ];
     }
 }

@@ -7,5 +7,78 @@
             {{ axitraceConfig | json_encode(960) | raw }}
         </script>
         <script defer src="{{ axitraceScriptUrl }}" data-axitrace-sdk="1"></script>
+        <script>
+            (function () {
+                'use strict';
+
+                // Bootstrap: the deferred SDK script above loads asynchronously and exposes
+                // window.Axitrace only once it finishes executing. Nothing else in this plugin
+                // ever calls Axitrace.init() — without this block the SDK script loads but sits
+                // inert and no client-side event (PageView/ViewContent/AddToCart/InitiateCheckout)
+                // is ever sent. Poll (bounded) for the SDK global, then init exactly once.
+                //
+                // Consent note: AxiTraceCookieProvider (src/CookieConsent/AxiTraceCookieProvider.php)
+                // only registers vt_vid/vt_sid/vt_uid as informational entries in Shopware's native
+                // cookie-consent-management UI (GDPR "what cookies do we use" disclosure) — it does
+                // not technically block script execution, and the `consentRequired` flag set on the
+                // config object above is not read anywhere in the AxiTrace SDK (web-sdk/velitrack-sdk.js
+                // only honours Do Not Track via `respectDNT`). There is no `_axi_consent` cookie
+                // anywhere in this codebase despite the README/CHANGELOG describing one. Reading the
+                // provider's actual contract as informational-only: this bootstrap does NOT add an
+                // additional technical consent gate. Wiring true enforcement (Shopware's native
+                // `data-cookie` / `text/plain` script-deferral mechanism bound to the registered
+                // cookie group) is a separate, larger change and out of scope here.
+                if (window.axitraceBootstrapped) {
+                    return;
+                }
+                window.axitraceBootstrapped = true;
+
+                var configEl = document.getElementById('axitrace-config');
+                if (!configEl) {
+                    return;
+                }
+
+                var config;
+                try {
+                    config = JSON.parse(configEl.textContent || '{}');
+                } catch (e) {
+                    return;
+                }
+                if (!config.publicKey) {
+                    return;
+                }
+
+                var attempts = 0;
+                var MAX_ATTEMPTS = 40; // bounded poll: 40 * 250ms = 10s, mirrors the Magento pixel bootstrap
+                var POLL_INTERVAL_MS = 250;
+
+                function waitForSdk() {
+                    if (window.Axitrace && typeof window.Axitrace.init === 'function') {
+                        try {
+                            window.Axitrace.init({
+                                publicKey: config.publicKey,
+                                apiUrl: config.apiUrl,
+                                debug: !!config.debug
+                            });
+                        } catch (e) {
+                            // A failed SDK init must never break the storefront page — analytics
+                            // tracking is best-effort. Only surface it when the merchant's own
+                            // admin-preview debug flag is on (see StorefrontSubscriber::isDebugMode).
+                            if (config.debug && window.console) {
+                                window.console.warn('AxiTrace: SDK init failed', e);
+                            }
+                        }
+                        return;
+                    }
+                    attempts += 1;
+                    if (attempts >= MAX_ATTEMPTS) {
+                        return;
+                    }
+                    setTimeout(waitForSdk, POLL_INTERVAL_MS);
+                }
+
+                waitForSdk();
+            })();
+        </script>
     {% endif %}
 {% endblock %}

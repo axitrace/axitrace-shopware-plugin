@@ -73,6 +73,15 @@
             <tag name="kernel.event_subscriber"/>
         </service>
 
+        <!-- OrderPlacedSubscriber: captures _fbp/_fbc cookies at order placement
+             (the only request-scoped point before the async "paid" purchase dispatch) -->
+        <service id="AxitraceShopware6\Subscriber\OrderPlacedSubscriber">
+            <argument type="service" id="request_stack"/>
+            <argument type="service" id="order.repository"/>
+            <argument type="service" id="logger"/>
+            <tag name="kernel.event_subscriber"/>
+        </service>
+
     </services>
 
 </container>

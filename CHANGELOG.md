@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Purchase events now carry the merchant's own Meta browser pixel cookies (`_fbp`/`_fbc`) when present. Captured by a new `OrderPlacedSubscriber` on `CheckoutOrderPlacedEvent` (the only point in the purchase flow that runs inside the customer's own checkout request — the "paid" state transition that triggers the actual purchase event send, handled by `OrderPaidSubscriber`, runs asynchronously for many payment methods with no request/cookie access), persisted to the order's `customFields`, and read back by `OrderEventNormalizer`. Improves Facebook CAPI browser/server event matching; no behavior change when cookies are absent.
+
+## [0.1.4] - 2026-07-13
+
+### Fixed
+
+- **Critical:** client-side event tracking (PageView/ViewContent/AddToCart/InitiateCheckout via the AxiTrace JavaScript SDK) never fired. The storefront layout template injected the SDK script and an `#axitrace-config` data block, but nothing ever called `window.Axitrace.init()` — the deferred script loaded and sat inert. Added a bounded-poll bootstrap script (mirrors the AxiTrace Magento plugin's pixel bootstrap) to `meta.html.twig` that reads `#axitrace-config`, waits for `window.Axitrace.init` to become available, and initializes the SDK exactly once (guarded against double-execution).
+
 ## [0.1.3] - 2026-05-25
 
 ### Fixed
@@ -38,7 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for Facebook CAPI, TikTok Events API, Google Ads offline conversions, and GA4 — relayed through the AxiTrace ingestion endpoint.
 - Cookie consent bridge: event forwarding honours Shopify/CookieBot consent signals via the AxiTrace JS SDK cookie (`_axi_consent`).
 
-[Unreleased]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/axitrace/axitrace-shopware-plugin/compare/v0.1.0...v0.1.1
