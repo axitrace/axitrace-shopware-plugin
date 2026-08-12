@@ -399,6 +399,43 @@ final class OrderEventNormalizerTest extends TestCase
 
         self::assertArrayHasKey('revenue', $data);
         self::assertArrayHasKey('value', $data);
+
+        // orderNumber is always present (empty string when the order has none)
+        self::assertSame('', $data['orderNumber']);
+    }
+
+    /**
+     * Buyer context captured at order placement (customFields written by
+     * OrderPlacedSubscriber) must surface in the payload: real IP/User-Agent
+     * at top level, GA cookies and the order number inside `data`.
+     */
+    public function testBuyerContextFromCustomFieldsIsForwarded(): void
+    {
+        if (!class_exists(\Shopware\Core\Checkout\Order\OrderEntity::class)) {
+            $this->markTestSkipped('Shopware OrderEntity not installed.');
+        }
+
+        $order = $this->makeFullOrder();
+        $order->setOrderNumber('10042');
+        $order->setCustomFields([
+            \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_FBP        => 'fb.1.1700000000.123456',
+            \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_FBC        => 'fb.1.1700000000.AbCdEf-123',
+            \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_CLIENT_IP  => '203.0.113.7',
+            \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_CLIENT_UA  => 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)',
+            \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_GA         => 'GA1.1.111222333.1700000001',
+            \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_GA_SESSION => 'GS2.1.s1700000002$o1$g1',
+        ]);
+
+        $payload = $this->normalizer->normalize($order, 'evt-ctx-1', 'pk_test');
+        $data    = $payload['data'];
+
+        self::assertSame('203.0.113.7', $payload['ip']);
+        self::assertSame('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)', $payload['userAgent']);
+        self::assertSame('fb.1.1700000000.123456', $data['fbp']);
+        self::assertSame('fb.1.1700000000.AbCdEf-123', $data['fbc']);
+        self::assertSame('GA1.1.111222333.1700000001', $data['_ga']);
+        self::assertSame('GS2.1.s1700000002$o1$g1', $data['ga_session_id']);
+        self::assertSame('10042', $data['orderNumber']);
     }
 
     /**

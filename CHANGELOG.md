@@ -5,11 +5,14 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.5] - 2026-08-12
 
 ### Added
 
-- Purchase events now carry the merchant's own Meta browser pixel cookies (`_fbp`/`_fbc`) when present. Captured by a new `OrderPlacedSubscriber` on `CheckoutOrderPlacedEvent` (the only point in the purchase flow that runs inside the customer's own checkout request — the "paid" state transition that triggers the actual purchase event send, handled by `OrderPaidSubscriber`, runs asynchronously for many payment methods with no request/cookie access), persisted to the order's `customFields`, and read back by `OrderEventNormalizer`. Improves Facebook CAPI browser/server event matching; no behavior change when cookies are absent.
+- Purchase events now include the human-readable order number (`data.orderNumber`). Downstream it becomes the GA4 `transaction_id` and the AxiTrace `order_id`, enabling purchase deduplication and reconciliation against the shop admin.
+- Purchase events now carry the buyer's real IP address and User-Agent, captured at order placement by `OrderPlacedSubscriber` (the "paid" transition runs server-side, where only the shop server's IP would be visible). Improves Facebook CAPI Event Match Quality.
+- Purchase events now carry the buyer's Google Analytics cookies (`_ga` client id and `_ga_<container>` session) when present, so server-side GA4 purchases stitch to the buyer's on-site session instead of appearing as unattributed new users.
+- Purchase events now carry the merchant's own Meta browser pixel cookies (`_fbp`/`_fbc`) when present. Captured by `OrderPlacedSubscriber` on `CheckoutOrderPlacedEvent` (the only point in the purchase flow that runs inside the customer's own checkout request — the "paid" state transition that triggers the actual purchase event send, handled by `OrderPaidSubscriber`, runs asynchronously for many payment methods with no request/cookie access), persisted to the order's `customFields`, and read back by `OrderEventNormalizer`. Improves Facebook CAPI browser/server event matching; no behavior change when cookies are absent.
 
 ## [0.1.4] - 2026-07-13
 

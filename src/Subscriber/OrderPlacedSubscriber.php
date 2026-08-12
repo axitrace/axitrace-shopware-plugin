@@ -11,8 +11,10 @@ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\RequestStack;
 
 /**
- * Captures the merchant's own Meta browser pixel cookies (_fbp/_fbc) at order
- * placement time and persists them onto the order's customFields.
+ * Captures request-scoped buyer context at order placement time and persists it
+ * onto the order's customFields: Meta browser pixel cookies (_fbp/_fbc), the
+ * buyer's real IP address and User-Agent, and Google Analytics cookies
+ * (_ga client id, _ga_<container> session).
  *
  * Why this exists: the purchase event itself is sent later, on the
  * order_transaction "paid" state transition (see OrderPaidSubscriber), which for
@@ -31,6 +33,26 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
 {
     public const CUSTOM_FIELD_FBP = 'axitrace_fbp';
     public const CUSTOM_FIELD_FBC = 'axitrace_fbc';
+    public const CUSTOM_FIELD_CLIENT_IP = 'axitrace_client_ip';
+    public const CUSTOM_FIELD_CLIENT_UA = 'axitrace_client_ua';
+    public const CUSTOM_FIELD_GA = 'axitrace_ga';
+    public const CUSTOM_FIELD_GA_SESSION = 'axitrace_ga_session';
+
+    /**
+     * Google Analytics client cookie format: GA1.2.<random>.<first_visit_ts>
+     */
+    private const GA_PATTERN = '/^GA\d+\.\d+\.\d+\.\d+$/';
+
+    /**
+     * Google Analytics 4 per-property session cookie value (GS1./GS2. prefixed).
+     */
+    private const GA_SESSION_PATTERN = '/^GS\d+\./';
+
+    /** Upper bound for forwarded User-Agent strings (defensive cap, not a spec limit). */
+    private const MAX_UA_LENGTH = 512;
+
+    /** Upper bound for forwarded GA session cookie values. */
+    private const MAX_GA_SESSION_LENGTH = 256;
 
     /**
      * Facebook Browser ID cookie format: fb.1.<timestamp>.<random_digits>
@@ -74,25 +96,73 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
             return;
         }
 
-        $fbp = $this->validate((string) $request->cookies->get('_fbp', ''), self::FBP_PATTERN);
-        $fbc = $this->validate((string) $request->cookies->get('_fbc', ''), self::FBC_PATTERN);
-
-        if ($fbp === null && $fbc === null) {
-            return;
-        }
-
         $customFields = [];
+
+        $fbp = $this->validate((string) $request->cookies->get('_fbp', ''), self::FBP_PATTERN);
         if ($fbp !== null) {
             $customFields[self::CUSTOM_FIELD_FBP] = $fbp;
         }
+
+        $fbc = $this->validate((string) $request->cookies->get('_fbc', ''), self::FBC_PATTERN);
         if ($fbc !== null) {
             $customFields[self::CUSTOM_FIELD_FBC] = $fbc;
+        }
+
+        // Real buyer IP + User-Agent. The purchase event itself is dispatched later
+        // (order_transaction "paid" transition) from a server context where the
+        // ingestion API would only ever see the shop server's IP and HTTP client UA —
+        // which degrades Facebook CAPI match quality. Capture the genuine values here.
+        $clientIp = (string) ($request->getClientIp() ?? '');
+        if ($clientIp !== '' && filter_var($clientIp, FILTER_VALIDATE_IP) !== false) {
+            $customFields[self::CUSTOM_FIELD_CLIENT_IP] = $clientIp;
+        }
+
+        $userAgent = trim((string) $request->headers->get('User-Agent', ''));
+        if ($userAgent !== '') {
+            $customFields[self::CUSTOM_FIELD_CLIENT_UA] = mb_substr($userAgent, 0, self::MAX_UA_LENGTH);
+        }
+
+        // GA cookies — let the server-side purchase reach GA4 with the buyer's real
+        // client_id/session so it stitches to their on-site session instead of
+        // appearing as an unattributed new user.
+        $ga = $this->validate((string) $request->cookies->get('_ga', ''), self::GA_PATTERN);
+        if ($ga !== null) {
+            $customFields[self::CUSTOM_FIELD_GA] = $ga;
+        }
+
+        $gaSession = $this->findGaSessionCookie($request->cookies->all());
+        if ($gaSession !== null) {
+            $customFields[self::CUSTOM_FIELD_GA_SESSION] = $gaSession;
+        }
+
+        if ($customFields === []) {
+            return;
         }
 
         $this->orderRepository->update([[
             'id'           => $event->getOrder()->getId(),
             'customFields' => $customFields,
         ]], $event->getContext());
+    }
+
+    /**
+     * Finds the first GA4 per-property session cookie (_ga_<CONTAINER-ID>) and
+     * returns its value, or null when none is present/valid.
+     *
+     * @param array<string, mixed> $cookies
+     */
+    private function findGaSessionCookie(array $cookies): ?string
+    {
+        foreach ($cookies as $name => $value) {
+            if (!is_string($name) || !is_string($value) || !str_starts_with($name, '_ga_')) {
+                continue;
+            }
+            if (preg_match(self::GA_SESSION_PATTERN, $value) === 1) {
+                return mb_substr($value, 0, self::MAX_GA_SESSION_LENGTH);
+            }
+        }
+
+        return null;
     }
 
     /**

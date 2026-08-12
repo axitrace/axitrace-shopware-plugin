@@ -22,7 +22,9 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  *       products: [{ productId, sku, name, quantity, price, currency }],
  *       revenue: { amount, currency },
  *       value: { amount, currency },
- *       fbp?: string, fbc?: string   // present only when captured at order placement
+ *       orderNumber: string,          // human-readable order number (GA4 transaction_id)
+ *       fbp?: string, fbc?: string,   // present only when captured at order placement
+ *       _ga?: string, ga_session_id?: string  // GA cookies captured at order placement
  *     }
  *   }
  *
@@ -49,7 +51,7 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  */
 final class OrderEventNormalizer
 {
-    private const PLUGIN_VERSION = '0.1.4';
+    private const PLUGIN_VERSION = '0.1.5';
     private const SDK_VERSION    = 'shopware-1.0';
     private const SOURCE         = 'shopware';
 
@@ -107,7 +109,7 @@ final class OrderEventNormalizer
         // Captured at order placement by OrderPlacedSubscriber (request-scoped — the
         // "paid" transition that triggers this normalizer runs asynchronously for many
         // payment methods and has no cookie access). Omitted entirely when absent so
-        // the payload is byte-identical to today for stores without their own Meta Pixel.
+        // the payload stays minimal for stores without the corresponding cookies.
         $customFields = $order->getCustomFields() ?? [];
         $fbp = (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_FBP] ?? '');
         $fbc = (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_FBC] ?? '');
@@ -119,6 +121,23 @@ final class OrderEventNormalizer
             $data['fbc'] = $fbc;
         }
 
+        // Google Analytics cookies captured at order placement — lets the server-side
+        // GA4 Measurement Protocol purchase carry the buyer's real client_id/session
+        // so GA4 stitches it to their on-site session instead of a generated id.
+        $ga = (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_GA] ?? '');
+        $gaSession = (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_GA_SESSION] ?? '');
+
+        if ($ga !== '') {
+            $data['_ga'] = $ga;
+        }
+        if ($gaSession !== '') {
+            $data['ga_session_id'] = $gaSession;
+        }
+
+        // Human-readable order number (e.g. "10042") — becomes the GA4 transaction_id
+        // and the ClickHouse order_id so merchants can reconcile against their shop admin.
+        $data['orderNumber'] = (string) ($order->getOrderNumber() ?? '');
+
         return [
             'event'                 => 'transaction.charge',
             'eventSalt'             => $eventId,
@@ -128,10 +147,12 @@ final class OrderEventNormalizer
             'workspace_public_key'  => $workspacePublicKey,
             'source'                => self::SOURCE,
             'timestamp'             => gmdate('Y-m-d\TH:i:s\Z'),
-            // Shopware does not expose the remote IP on OrderEntity post-payment;
-            // the ingestion-api falls back to the real client IP from the request.
-            'ip'                    => '',
-            'userAgent'             => '',
+            // Real buyer IP/User-Agent captured at order placement by OrderPlacedSubscriber
+            // (the "paid" transition runs server-side with no request context). When absent
+            // the ingestion-api falls back to the transport request's IP/UA (the shop server),
+            // which is the pre-0.1.5 behavior.
+            'ip'                    => (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_CLIENT_IP] ?? ''),
+            'userAgent'             => (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_CLIENT_UA] ?? ''),
             'pluginVersion'         => self::PLUGIN_VERSION,
             'sdkVersion'            => self::SDK_VERSION,
             'billingCity'           => $billing !== null ? (string) $billing->getCity() : '',
