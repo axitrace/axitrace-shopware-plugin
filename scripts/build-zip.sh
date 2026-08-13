@@ -41,6 +41,11 @@ rsync -a \
 
 # Produce the ZIP from the parent of the staging directory so paths inside the
 # archive begin with AxitraceShopware6/...
+# Remove any previous archive first: `zip -r` UPDATES an existing archive in
+# place and never deletes entries missing from the input, so files removed from
+# the plugin tree would otherwise ship forever (a stale
+# src/DependencyInjection/services.xml persisted this way until 2026-08-13).
+rm -f "${DOWNLOADS_DIR}/axitrace-shopware-plugin-latest.zip"
 ( cd "${TMP_DIR}" && zip -r -X -q "${DOWNLOADS_DIR}/axitrace-shopware-plugin-latest.zip" "AxitraceShopware6" )
 
 # SHA-256 checksum file (matches `shasum -a 256` output format).
