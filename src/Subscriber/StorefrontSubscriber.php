@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace AxitraceShopware6\Subscriber;
 
 use AxitraceShopware6\Config\PluginConfig;
+use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Storefront\Event\StorefrontRenderEvent;
+use Shopware\Storefront\Page\Checkout\Confirm\CheckoutConfirmPage;
 use Shopware\Storefront\Page\Product\ProductPage;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 
@@ -85,6 +87,13 @@ final class StorefrontSubscriber implements EventSubscriberInterface
         $event->setParameter('axitraceScriptUrl', $sdkBaseUrl . '/axitrack.js');
 
         $this->injectProductContext($event, $salesChannelId);
+
+        if ($pageType === 'checkout') {
+            $this->injectCheckoutContext(
+                $event,
+                $event->getSalesChannelContext()->getCurrency()->getIsoCode(),
+            );
+        }
     }
 
     /**
@@ -119,6 +128,54 @@ final class StorefrontSubscriber implements EventSubscriberInterface
             // Product context is non-critical; swallowing here is intentional — the storefront
             // render must not be interrupted by an SDK enrichment failure.
             // The axitraceConfig block is already set; the SDK loader will still fire.
+        }
+    }
+
+    /**
+     * Injects cart context for the checkout confirm page so the SDK's mid-funnel
+     * events (InitiateCheckout / AddPaymentInfo) carry the real order value and
+     * currency instead of firing empty. Read from Shopware's confirm page cart
+     * (server-authoritative) rather than scraped from the theme's DOM, which is
+     * theme-dependent and unreliable.
+     *
+     * Wrapped in try/catch like injectProductContext — this is non-critical
+     * enrichment and must never interrupt the checkout page render.
+     */
+    private function injectCheckoutContext(StorefrontRenderEvent $event, string $currency): void
+    {
+        try {
+            $page = $event->getPage();
+
+            if (!($page instanceof CheckoutConfirmPage)) {
+                return;
+            }
+
+            $cart = $page->getCart();
+
+            $items = [];
+            foreach ($cart->getLineItems() as $lineItem) {
+                if ($lineItem->getType() !== LineItem::PRODUCT_LINE_ITEM_TYPE) {
+                    continue;
+                }
+
+                $referencedId = $lineItem->getReferencedId();
+                if ($referencedId === null || $referencedId === '') {
+                    continue;
+                }
+
+                $items[] = [
+                    'id'       => $referencedId,
+                    'quantity' => $lineItem->getQuantity(),
+                ];
+            }
+
+            $event->setParameter('axitraceCheckoutContext', [
+                'value'    => round($cart->getPrice()->getTotalPrice(), 2),
+                'currency' => $currency,
+                'items'    => $items,
+            ]);
+        } catch (\Throwable) {
+            // Non-critical enrichment; never interrupt the checkout render.
         }
     }
 }

@@ -6,6 +6,11 @@
         <script type="application/json" id="axitrace-config">
             {{ axitraceConfig | json_encode(960) | raw }}
         </script>
+        {% if axitraceCheckoutContext is defined and axitraceCheckoutContext is not null %}
+            <script type="application/json" id="axitrace-checkout-context">
+                {{ axitraceCheckoutContext | json_encode(960) | raw }}
+            </script>
+        {% endif %}
         <script defer src="{{ axitraceScriptUrl }}" data-axitrace-sdk="1"></script>
         <script>
             (function () {

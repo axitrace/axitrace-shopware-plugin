@@ -5,6 +5,17 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-08-13
+
+### Added
+
+- Full checkout-funnel tracking. The confirm page now emits **InitiateCheckout** and **AddPaymentInfo** to your connected ad platforms (Facebook CAPI, TikTok, etc.), in addition to the existing ViewContent, AddToCart and Purchase events — so the whole funnel is covered server-side by AxiTrace instead of relying on a browser pixel.
+- These mid-funnel events now carry the real cart **value and currency**, read server-side from Shopware's confirm-page cart (`CheckoutConfirmPage`) and injected as an `axitrace-checkout-context` block. This lets Facebook/TikTok optimize on checkout value and improves event match quality. The injection is wrapped defensively and never interrupts the checkout render.
+
+### Notes
+
+- AddPaymentInfo fires for the payment method pre-selected on the confirm page and again if the customer switches method (deduplicated per page view). Detection uses Shopware's stable `paymentMethodId` field name, so it works across themes.
+
 ## [0.1.5] - 2026-08-12
 
 ### Added
