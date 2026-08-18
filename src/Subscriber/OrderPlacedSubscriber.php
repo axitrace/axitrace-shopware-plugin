@@ -39,6 +39,22 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
     public const CUSTOM_FIELD_GA_SESSION = 'axitrace_ga_session';
 
     /**
+     * TikTok browser ID (_ttp), Reddit browser ID (_rdt_uuid) and Reddit click ID
+     * (_rdt_cid), plus the AxiTrace visitor/session cookies.
+     *
+     * Without these the purchase reaches TikTok Events API and Reddit CAPI carrying no
+     * platform identifier of its own, and Meta/TikTok/Reddit get no external_id — measured
+     * 2026-08-18 across 893 live orders: external_id 0%. The browser events on the very
+     * same visit carry all of them, so the data exists; it was simply never captured at
+     * the one point where the purchase can still see the customer's cookies.
+     */
+    public const CUSTOM_FIELD_TTP = 'axitrace_ttp';
+    public const CUSTOM_FIELD_RDT_UUID = 'axitrace_rdt_uuid';
+    public const CUSTOM_FIELD_RDT_CID = 'axitrace_rdt_cid';
+    public const CUSTOM_FIELD_VISITOR_ID = 'axitrace_visitor_id';
+    public const CUSTOM_FIELD_SESSION_ID = 'axitrace_session_id';
+
+    /**
      * Google Analytics client cookie format: GA1.2.<random>.<first_visit_ts>
      */
     private const GA_PATTERN = '/^GA\d+\.\d+\.\d+\.\d+$/';
@@ -53,6 +69,29 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
 
     /** Upper bound for forwarded GA session cookie values. */
     private const MAX_GA_SESSION_LENGTH = 256;
+
+    /**
+     * TikTok browser ID cookie, e.g. "01KCFX1BV9NB74R5ZE592YDTYN_.tt.1".
+     */
+    private const TTP_PATTERN = '/^[A-Za-z0-9_.-]{8,128}$/';
+
+    /**
+     * Reddit browser ID cookie (_rdt_uuid), optionally prefixed with a creation
+     * timestamp: "1787027570150.35164282-961b-4313-9900-7212ba542074".
+     * Mirrors UserIdentityService::isValidRdtUuid() in event-worker.
+     */
+    private const RDT_UUID_PATTERN = '/^(\d{10,16}\.)?[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i';
+
+    /**
+     * Reddit click ID cookie written by the AxiTrace web SDK in its versioned
+     * format "v2|<firstSeenMs>|<clickId>".
+     */
+    private const RDT_CID_PATTERN = '/^v\d+\|\d{10,16}\|[A-Za-z0-9_.-]{8,500}$/';
+
+    /**
+     * AxiTrace visitor/session cookies (vt_vid, vt_sid) — UUIDs written by the web SDK.
+     */
+    private const AXITRACE_ID_PATTERN = '/^[A-Za-z0-9_-]{8,64}$/';
 
     /**
      * Facebook Browser ID cookie format: fb.1.<timestamp>.<random_digits>
@@ -128,6 +167,21 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
         $ga = $this->validate((string) $request->cookies->get('_ga', ''), self::GA_PATTERN);
         if ($ga !== null) {
             $customFields[self::CUSTOM_FIELD_GA] = $ga;
+        }
+
+        // TikTok / Reddit browser and click IDs, and the AxiTrace visitor/session IDs.
+        // Same reasoning as the Meta cookies above: the paid transition cannot see them.
+        foreach ([
+            self::CUSTOM_FIELD_TTP => ['_ttp', self::TTP_PATTERN],
+            self::CUSTOM_FIELD_RDT_UUID => ['_rdt_uuid', self::RDT_UUID_PATTERN],
+            self::CUSTOM_FIELD_RDT_CID => ['_rdt_cid', self::RDT_CID_PATTERN],
+            self::CUSTOM_FIELD_VISITOR_ID => ['vt_vid', self::AXITRACE_ID_PATTERN],
+            self::CUSTOM_FIELD_SESSION_ID => ['vt_sid', self::AXITRACE_ID_PATTERN],
+        ] as $customField => [$cookieName, $pattern]) {
+            $value = $this->validate((string) $request->cookies->get($cookieName, ''), $pattern);
+            if ($value !== null) {
+                $customFields[$customField] = $value;
+            }
         }
 
         $gaSession = $this->findGaSessionCookie($request->cookies->all());

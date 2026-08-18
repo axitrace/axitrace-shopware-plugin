@@ -6,6 +6,7 @@ namespace AxitraceShopware6\Normalizer;
 
 use AxitraceShopware6\Subscriber\OrderPlacedSubscriber;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
+use Shopware\Core\System\Country\Aggregate\CountryState\CountryStateEntity;
 use Shopware\Core\Checkout\Order\OrderEntity;
 
 /**
@@ -51,7 +52,7 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  */
 final class OrderEventNormalizer
 {
-    private const PLUGIN_VERSION = '0.1.5';
+    private const PLUGIN_VERSION = '0.1.7';
     private const SDK_VERSION    = 'shopware-1.0';
     private const SOURCE         = 'shopware';
 
@@ -96,10 +97,15 @@ final class OrderEventNormalizer
             'currency' => $orderCurrency,
         ];
 
+        // firstName/lastName are match keys Meta hashes into fn/ln and TikTok into
+        // first_name/last_name. Shopware has always had them on the billing address; they
+        // were simply never forwarded, so every order reached Meta with fn/ln null.
         $data = [
             'client' => [
                 'email' => $orderCustomer !== null ? (string) $orderCustomer->getEmail() : '',
                 'phone' => $billing !== null ? (string) $billing->getPhoneNumber() : '',
+                'firstName' => $billing !== null ? (string) $billing->getFirstName() : '',
+                'lastName' => $billing !== null ? (string) $billing->getLastName() : '',
             ],
             'products' => $products,
             'revenue'  => $money,
@@ -119,6 +125,20 @@ final class OrderEventNormalizer
         }
         if ($fbc !== '') {
             $data['fbc'] = $fbc;
+        }
+
+        // TikTok / Reddit identifiers captured at order placement. Without them the
+        // purchase reaches TikTok Events API and Reddit CAPI with no platform identifier
+        // of its own, leaving those destinations to match on e-mail alone.
+        foreach ([
+            'ttp' => OrderPlacedSubscriber::CUSTOM_FIELD_TTP,
+            'rdt_uuid' => OrderPlacedSubscriber::CUSTOM_FIELD_RDT_UUID,
+            'rdt_cid' => OrderPlacedSubscriber::CUSTOM_FIELD_RDT_CID,
+        ] as $key => $customField) {
+            $value = (string) ($customFields[$customField] ?? '');
+            if ($value !== '') {
+                $data[$key] = $value;
+            }
         }
 
         // Google Analytics cookies captured at order placement — lets the server-side
@@ -155,10 +175,45 @@ final class OrderEventNormalizer
             'userAgent'             => (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_CLIENT_UA] ?? ''),
             'pluginVersion'         => self::PLUGIN_VERSION,
             'sdkVersion'            => self::SDK_VERSION,
+            // AxiTrace visitor/session cookies captured at order placement. They become
+            // the external_id every destination matches on and stitch this server-side
+            // purchase to the buyer's browser profile; without them external_id was 0%.
+            'userId'                => (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_VISITOR_ID] ?? ''),
+            'sessionId'             => (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_SESSION_ID] ?? ''),
             'billingCity'           => $billing !== null ? (string) $billing->getCity() : '',
             'billingCountry'        => $billing?->getCountry()?->getIso() ?? '',
             'billingZip'            => $billing !== null ? (string) $billing->getZipcode() : '',
+            // State/province — Meta `st`, TikTok `state`.
+            'billingState'          => $this->normalizeStateCode($billing?->getCountryState()),
             'data'                  => $data,
         ];
+    }
+
+    /**
+     * Subdivision code for the buyer's state/province.
+     *
+     * Shopware stores ISO 3166-2 short codes ("DE-BW", "US-CA"), but Meta expects the
+     * bare subdivision ("bw", "ca") — its normalizer strips punctuation, so an unstripped
+     * "DE-BW" would hash as "debw" and never match. The country prefix is therefore
+     * removed here; the full state name is the fallback when no code exists.
+     */
+    private function normalizeStateCode(?CountryStateEntity $state): string
+    {
+        if ($state === null) {
+            return '';
+        }
+
+        $shortCode = trim((string) $state->getShortCode());
+
+        if ($shortCode !== '') {
+            // "DE-BW" -> "BW"; a bare "BW" is left untouched.
+            if (preg_match('/^[A-Za-z]{2}-(.+)$/', $shortCode, $matches) === 1) {
+                return $matches[1];
+            }
+
+            return $shortCode;
+        }
+
+        return trim((string) $state->getName());
     }
 }
