@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AxitraceShopware6\Tests\Integration\Subscriber;
 
 use AxitraceShopware6\Config\PluginConfig;
+use AxitraceShopware6\Normalizer\ConversionValueBasis;
 use AxitraceShopware6\EventId\UuidV5Generator;
 use AxitraceShopware6\Exception\IngestionUnreachableException;
 use AxitraceShopware6\HttpClient\IngestionApiClient;
@@ -98,6 +99,8 @@ final class OrderPaidSubscriberTest extends TestCase
 
         $this->config->method('isEnabled')->with($salesChannelId)->willReturn(true);
         $this->config->method('getPublicKey')->with($salesChannelId)->willReturn($publicKey);
+        // The merchant's per-channel "conversion value" setting must reach the normalizer.
+        $this->config->method('getConversionValueBasis')->with($salesChannelId)->willReturn(ConversionValueBasis::NetExclShipping);
 
         $this->uuidGenerator
             ->expects(self::once())
@@ -109,6 +112,7 @@ final class OrderPaidSubscriberTest extends TestCase
         $this->normalizer
             ->expects(self::once())
             ->method('normalize')
+            ->with(self::anything(), $eventId, $publicKey, ConversionValueBasis::NetExclShipping)
             ->willReturn($fakePayload);
 
         $this->ingestionClient

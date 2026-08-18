@@ -117,7 +117,12 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
         }
 
         $eventId = $this->uuidGenerator->forOrder($orderId, $transactionId);
-        $payload = $this->normalizer->normalize($order, $eventId, $publicKey);
+        $payload = $this->normalizer->normalize(
+            $order,
+            $eventId,
+            $publicKey,
+            $this->config->getConversionValueBasis($salesChannelId),
+        );
 
         try {
             $this->ingestionClient->sendEvent($payload);

@@ -6,6 +6,7 @@ namespace AxitraceShopware6\Tests\Unit\Config;
 
 use AxitraceShopware6\Config\AxitraceCrypto;
 use AxitraceShopware6\Config\PluginConfig;
+use AxitraceShopware6\Normalizer\ConversionValueBasis;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
@@ -272,6 +273,29 @@ final class PluginConfigTest extends TestCase
     // -------------------------------------------------------------------------
     // Legacy plaintext fallback
     // -------------------------------------------------------------------------
+
+    public function testConversionValueBasisDefaultsToGrossTotalWhenUnset(): void
+    {
+        $this->configService->method('get')
+            ->with('AxitraceShopware6.config.conversionValueBasis', null)
+            ->willReturn(null);
+
+        self::assertSame(ConversionValueBasis::GrossTotal, $this->pluginConfig->getConversionValueBasis());
+    }
+
+    public function testConversionValueBasisReadsConfiguredOptionPerSalesChannel(): void
+    {
+        $this->configService->method('get')
+            ->willReturnCallback(static fn (string $key, ?string $channel) => match ($channel) {
+                'channel-a' => 'net_excl_shipping',
+                'channel-b' => 'not-a-real-option',
+                default => null,
+            });
+
+        self::assertSame(ConversionValueBasis::NetExclShipping, $this->pluginConfig->getConversionValueBasis('channel-a'));
+        // Invalid values never break tracking — they fall back to the default.
+        self::assertSame(ConversionValueBasis::GrossTotal, $this->pluginConfig->getConversionValueBasis('channel-b'));
+    }
 
     public function testGetPublicKeyAcceptsLegacyPlaintextValue(): void
     {

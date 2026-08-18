@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AxitraceShopware6\Config;
 
+use AxitraceShopware6\Normalizer\ConversionValueBasis;
 use Psr\Log\LoggerInterface;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 
@@ -180,6 +181,18 @@ final class PluginConfig
         }
 
         return $domain;
+    }
+
+    /**
+     * Which order amount is reported as the purchase conversion value
+     * (see {@see ConversionValueBasis}). Unset or invalid values fall back to
+     * the historical default — order total including VAT and shipping.
+     */
+    public function getConversionValueBasis(?string $salesChannelId = null): ConversionValueBasis
+    {
+        return ConversionValueBasis::fromConfigValue(
+            $this->systemConfigService->get(self::CONFIG_DOMAIN . 'conversionValueBasis', $salesChannelId),
+        );
     }
 
     // -------------------------------------------------------------------------

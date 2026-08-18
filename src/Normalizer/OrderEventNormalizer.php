@@ -24,6 +24,8 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  *       revenue: { amount, currency },
  *       value: { amount, currency },
  *       orderNumber: string,          // human-readable order number (GA4 transaction_id)
+ *       tax: float, shipping: float,  // gross VAT / shipping contained in the order
+ *       valueBasis: string,           // which amount `value`/`revenue` report (ConversionValueBasis)
  *       fbp?: string, fbc?: string,   // present only when captured at order placement
  *       _ga?: string, ga_session_id?: string  // GA cookies captured at order placement
  *     }
@@ -48,13 +50,26 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  * hydrated — no addAssociation() needed), written by OrderPlacedSubscriber at
  * order-placement time.
  *
- * This is a pure mapper — no constructor dependencies, no side effects.
+ * `revenue`/`value` report the amount selected by the merchant's "conversion value"
+ * setting ({@see ConversionValueBasis}); the default is the historical order total
+ * including VAT and shipping. Products keep their unit prices as charged.
+ *
+ * This is a pure mapper — no I/O, no side effects.
  */
 final class OrderEventNormalizer
 {
-    private const PLUGIN_VERSION = '0.1.7';
+    private const PLUGIN_VERSION = '0.1.8';
     private const SDK_VERSION    = 'shopware-1.0';
     private const SOURCE         = 'shopware';
+
+    private readonly ConversionValueResolver $valueResolver;
+
+    public function __construct(?ConversionValueResolver $valueResolver = null)
+    {
+        // Optional so the class stays constructible with `new OrderEventNormalizer()`
+        // (services.xml, tests) — the resolver is a pure, stateless helper.
+        $this->valueResolver = $valueResolver ?? new ConversionValueResolver();
+    }
 
     /**
      * Converts an OrderEntity (with pre-loaded associations) into the
@@ -66,13 +81,26 @@ final class OrderEventNormalizer
      *
      * @return array<string, mixed>
      */
-    public function normalize(OrderEntity $order, string $eventId, string $workspacePublicKey): array
-    {
+    public function normalize(
+        OrderEntity $order,
+        string $eventId,
+        string $workspacePublicKey,
+        ConversionValueBasis $valueBasis = ConversionValueBasis::GrossTotal,
+    ): array {
         $orderCurrency  = $order->getCurrency()?->getIsoCode() ?? '';
         $billing        = $order->getBillingAddress();
         $orderCustomer  = $order->getOrderCustomer();
         $lineItems      = $order->getLineItems();
-        $revenueAmount  = (float) $order->getAmountTotal();
+
+        // Order amounts. Shopware always exposes the gross and net grand totals;
+        // the shipping breakdown lives on the CalculatedPrice, which is null on
+        // some programmatically created orders — treat that as free shipping.
+        $amountTotal   = (float) $order->getAmountTotal();
+        $amountNet     = (float) $order->getAmountNet();
+        $shippingCosts = $order->getShippingCosts();
+        $shippingGross = $shippingCosts !== null ? (float) $shippingCosts->getTotalPrice() : 0.0;
+        $shippingTax   = $shippingCosts !== null ? (float) $shippingCosts->getCalculatedTaxes()->getAmount() : 0.0;
+        $revenueAmount = $this->valueResolver->resolve($valueBasis, $amountTotal, $amountNet, $shippingGross, $shippingTax);
 
         $products = [];
         if ($lineItems !== null) {
@@ -157,6 +185,13 @@ final class OrderEventNormalizer
         // Human-readable order number (e.g. "10042") — becomes the GA4 transaction_id
         // and the ClickHouse order_id so merchants can reconcile against their shop admin.
         $data['orderNumber'] = (string) ($order->getOrderNumber() ?? '');
+
+        // VAT and shipping contained in the order, always gross and independent of the
+        // configured value basis — GA4 reports them as the purchase `tax`/`shipping`
+        // params, and they let the merchant reconstruct any other basis downstream.
+        $data['tax']      = max(0.0, round($amountTotal - $amountNet, 2));
+        $data['shipping'] = max(0.0, round($shippingGross, 2));
+        $data['valueBasis'] = $valueBasis->value;
 
         return [
             'event'                 => 'transaction.charge',

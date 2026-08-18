@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AxitraceShopware6\Tests\Unit\Normalizer;
 
+use AxitraceShopware6\Normalizer\ConversionValueBasis;
 use AxitraceShopware6\Normalizer\OrderEventNormalizer;
 use PHPUnit\Framework\TestCase;
 
@@ -61,7 +62,6 @@ final class OrderEventNormalizerTest extends TestCase
 
                 public function __construct(string $iso)
                 {
-                    parent::__construct();
                     $this->isoValue = $iso;
                 }
 
@@ -89,11 +89,12 @@ final class OrderEventNormalizerTest extends TestCase
 
             public function __construct(string $city, string $zip, string $phone, $country)
             {
-                parent::__construct();
                 $this->cityValue    = $city;
                 $this->zipValue     = $zip;
                 $this->phoneValue   = $phone;
                 $this->countryValue = $country;
+                $this->setFirstName('Erika');
+                $this->setLastName('Mustermann');
             }
 
             public function getCity(): string
@@ -134,7 +135,6 @@ final class OrderEventNormalizerTest extends TestCase
 
             public function __construct(string $email)
             {
-                parent::__construct();
                 $this->emailValue = $email;
             }
 
@@ -161,7 +161,6 @@ final class OrderEventNormalizerTest extends TestCase
 
             public function __construct(string $isoCode)
             {
-                parent::__construct();
                 $this->isoCodeValue = $isoCode;
             }
 
@@ -193,7 +192,6 @@ final class OrderEventNormalizerTest extends TestCase
         $productItem = new class extends \Shopware\Core\Checkout\Order\Aggregate\OrderLineItem\OrderLineItemEntity {
             public function __construct()
             {
-                parent::__construct();
                 $this->setId('item-1');
             }
 
@@ -212,7 +210,7 @@ final class OrderEventNormalizerTest extends TestCase
                 return ['productNumber' => 'SKU-001'];
             }
 
-            public function getLabel(): ?string
+            public function getLabel(): string
             {
                 return 'Test Product';
             }
@@ -234,7 +232,6 @@ final class OrderEventNormalizerTest extends TestCase
             $promotionItem = new class extends \Shopware\Core\Checkout\Order\Aggregate\OrderLineItem\OrderLineItemEntity {
                 public function __construct()
                 {
-                    parent::__construct();
                     $this->setId('promo-1');
                 }
 
@@ -253,7 +250,7 @@ final class OrderEventNormalizerTest extends TestCase
                     return [];
                 }
 
-                public function getLabel(): ?string
+                public function getLabel(): string
                 {
                     return '10% off coupon';
                 }
@@ -302,7 +299,6 @@ final class OrderEventNormalizerTest extends TestCase
 
             public function __construct(object $billing, object $customer, object $currency, object $lineItems)
             {
-                parent::__construct();
                 $this->setId('order-uuid-001');
                 $this->billingRef   = $billing;
                 $this->customerRef  = $customer;
@@ -313,6 +309,24 @@ final class OrderEventNormalizerTest extends TestCase
             public function getAmountTotal(): float
             {
                 return 199.99;
+            }
+
+            // 199.99 gross = 185.17 net + 14.82 VAT (8.1%); shipping 9.90 gross incl. 0.74 VAT.
+            public function getAmountNet(): float
+            {
+                return 185.17;
+            }
+
+            public function getShippingCosts(): \Shopware\Core\Checkout\Cart\Price\Struct\CalculatedPrice
+            {
+                return new \Shopware\Core\Checkout\Cart\Price\Struct\CalculatedPrice(
+                    9.90,
+                    9.90,
+                    new \Shopware\Core\Checkout\Cart\Tax\Struct\CalculatedTaxCollection([
+                        new \Shopware\Core\Checkout\Cart\Tax\Struct\CalculatedTax(0.74, 8.1, 9.90),
+                    ]),
+                    new \Shopware\Core\Checkout\Cart\Tax\Struct\TaxRuleCollection(),
+                );
             }
 
             public function getCurrency(): ?\Shopware\Core\System\Currency\CurrencyEntity
@@ -472,6 +486,54 @@ final class OrderEventNormalizerTest extends TestCase
     }
 
     /**
+     * The merchant's "conversion value" setting selects which order amount is
+     * reported; the default stays the historical gross total.
+     */
+    public function testConversionValueBasisControlsRevenueAmount(): void
+    {
+        if (!class_exists(\Shopware\Core\Checkout\Order\OrderEntity::class)) {
+            $this->markTestSkipped('Shopware OrderEntity not installed.');
+        }
+
+        $order = $this->makeFullOrder();
+
+        $default = $this->normalizer->normalize($order, 'evt-1', 'pk_test');
+        self::assertSame(199.99, $default['data']['revenue']['amount']);
+        self::assertSame('gross_total', $default['data']['valueBasis']);
+
+        $exclShipping = $this->normalizer->normalize($order, 'evt-1', 'pk_test', ConversionValueBasis::GrossExclShipping);
+        self::assertSame(190.09, $exclShipping['data']['revenue']['amount']);
+        self::assertSame(190.09, $exclShipping['data']['value']['amount']);
+
+        $net = $this->normalizer->normalize($order, 'evt-1', 'pk_test', ConversionValueBasis::NetTotal);
+        self::assertSame(185.17, $net['data']['revenue']['amount']);
+
+        // net excl. shipping = 185.17 - (9.90 - 0.74) = 176.01
+        $netExclShipping = $this->normalizer->normalize($order, 'evt-1', 'pk_test', ConversionValueBasis::NetExclShipping);
+        self::assertSame(176.01, $netExclShipping['data']['revenue']['amount']);
+        self::assertSame('net_excl_shipping', $netExclShipping['data']['valueBasis']);
+    }
+
+    /**
+     * Gross VAT and shipping ride along regardless of the selected basis so
+     * GA4 gets tax/shipping params and merchants can reconstruct any basis.
+     */
+    public function testTaxAndShippingAreAlwaysReportedGross(): void
+    {
+        if (!class_exists(\Shopware\Core\Checkout\Order\OrderEntity::class)) {
+            $this->markTestSkipped('Shopware OrderEntity not installed.');
+        }
+
+        $order = $this->makeFullOrder();
+
+        foreach ([ConversionValueBasis::GrossTotal, ConversionValueBasis::NetExclShipping] as $basis) {
+            $payload = $this->normalizer->normalize($order, 'evt-1', 'pk_test', $basis);
+            self::assertSame(14.82, $payload['data']['tax']);
+            self::assertSame(9.90, $payload['data']['shipping']);
+        }
+    }
+
+    /**
      * When getCurrency() returns null the currency code must be an empty string
      * and no exception must be thrown.
      */
@@ -484,13 +546,27 @@ final class OrderEventNormalizerTest extends TestCase
         $order = new class extends \Shopware\Core\Checkout\Order\OrderEntity {
             public function __construct()
             {
-                parent::__construct();
                 $this->setId('order-no-currency');
             }
 
             public function getAmountTotal(): float
             {
                 return 50.00;
+            }
+
+            public function getAmountNet(): float
+            {
+                return 0.0;
+            }
+
+            public function getShippingCosts(): \Shopware\Core\Checkout\Cart\Price\Struct\CalculatedPrice
+            {
+                return new \Shopware\Core\Checkout\Cart\Price\Struct\CalculatedPrice(
+                    0.0,
+                    0.0,
+                    new \Shopware\Core\Checkout\Cart\Tax\Struct\CalculatedTaxCollection(),
+                    new \Shopware\Core\Checkout\Cart\Tax\Struct\TaxRuleCollection(),
+                );
             }
 
             public function getCurrency(): ?\Shopware\Core\System\Currency\CurrencyEntity
@@ -538,7 +614,6 @@ final class OrderEventNormalizerTest extends TestCase
 
             public function __construct(object $currency)
             {
-                parent::__construct();
                 $this->setId('order-no-billing');
                 $this->currencyRef = $currency;
             }
@@ -546,6 +621,21 @@ final class OrderEventNormalizerTest extends TestCase
             public function getAmountTotal(): float
             {
                 return 75.00;
+            }
+
+            public function getAmountNet(): float
+            {
+                return 0.0;
+            }
+
+            public function getShippingCosts(): \Shopware\Core\Checkout\Cart\Price\Struct\CalculatedPrice
+            {
+                return new \Shopware\Core\Checkout\Cart\Price\Struct\CalculatedPrice(
+                    0.0,
+                    0.0,
+                    new \Shopware\Core\Checkout\Cart\Tax\Struct\CalculatedTaxCollection(),
+                    new \Shopware\Core\Checkout\Cart\Tax\Struct\TaxRuleCollection(),
+                );
             }
 
             public function getCurrency(): ?\Shopware\Core\System\Currency\CurrencyEntity
@@ -597,7 +687,6 @@ final class OrderEventNormalizerTest extends TestCase
 
             public function __construct(object $currency)
             {
-                parent::__construct();
                 $this->setId('order-no-customer');
                 $this->currencyRef = $currency;
             }
@@ -605,6 +694,21 @@ final class OrderEventNormalizerTest extends TestCase
             public function getAmountTotal(): float
             {
                 return 120.00;
+            }
+
+            public function getAmountNet(): float
+            {
+                return 0.0;
+            }
+
+            public function getShippingCosts(): \Shopware\Core\Checkout\Cart\Price\Struct\CalculatedPrice
+            {
+                return new \Shopware\Core\Checkout\Cart\Price\Struct\CalculatedPrice(
+                    0.0,
+                    0.0,
+                    new \Shopware\Core\Checkout\Cart\Tax\Struct\CalculatedTaxCollection(),
+                    new \Shopware\Core\Checkout\Cart\Tax\Struct\TaxRuleCollection(),
+                );
             }
 
             public function getCurrency(): ?\Shopware\Core\System\Currency\CurrencyEntity
@@ -659,7 +763,6 @@ final class OrderEventNormalizerTest extends TestCase
 
             public function __construct(object $currency, object $lineItems)
             {
-                parent::__construct();
                 $this->setId('order-mixed-items');
                 $this->currencyRef  = $currency;
                 $this->lineItemsRef = $lineItems;
@@ -668,6 +771,21 @@ final class OrderEventNormalizerTest extends TestCase
             public function getAmountTotal(): float
             {
                 return 89.98;
+            }
+
+            public function getAmountNet(): float
+            {
+                return 0.0;
+            }
+
+            public function getShippingCosts(): \Shopware\Core\Checkout\Cart\Price\Struct\CalculatedPrice
+            {
+                return new \Shopware\Core\Checkout\Cart\Price\Struct\CalculatedPrice(
+                    0.0,
+                    0.0,
+                    new \Shopware\Core\Checkout\Cart\Tax\Struct\CalculatedTaxCollection(),
+                    new \Shopware\Core\Checkout\Cart\Tax\Struct\TaxRuleCollection(),
+                );
             }
 
             public function getCurrency(): ?\Shopware\Core\System\Currency\CurrencyEntity
@@ -714,13 +832,27 @@ final class OrderEventNormalizerTest extends TestCase
         $order = new class extends \Shopware\Core\Checkout\Order\OrderEntity {
             public function __construct()
             {
-                parent::__construct();
                 $this->setId('order-source-test');
             }
 
             public function getAmountTotal(): float
             {
                 return 0.0;
+            }
+
+            public function getAmountNet(): float
+            {
+                return 0.0;
+            }
+
+            public function getShippingCosts(): \Shopware\Core\Checkout\Cart\Price\Struct\CalculatedPrice
+            {
+                return new \Shopware\Core\Checkout\Cart\Price\Struct\CalculatedPrice(
+                    0.0,
+                    0.0,
+                    new \Shopware\Core\Checkout\Cart\Tax\Struct\CalculatedTaxCollection(),
+                    new \Shopware\Core\Checkout\Cart\Tax\Struct\TaxRuleCollection(),
+                );
             }
 
             public function getCurrency(): ?\Shopware\Core\System\Currency\CurrencyEntity

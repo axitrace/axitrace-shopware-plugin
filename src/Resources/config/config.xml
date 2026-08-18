@@ -31,6 +31,37 @@
             <helpText lang="de-DE">Optional: Geben Sie Ihre eigene Subdomain ein (z. B. pixel.ihrshop.de), die per CNAME auf stat.axitrace.com verweist. Das Browser-SDK wird dann von Ihrer Domain geladen, sodass Cookies als First-Party gesetzt werden — verbessert das Tracking auf iOS/Safari. Leer lassen, um stat.axitrace.com zu verwenden (funktioniert für alle).</helpText>
         </input-field>
 
+        <input-field type="single-select">
+            <name>conversionValueBasis</name>
+            <label>Conversion value</label>
+            <label lang="de-DE">Conversion-Wert</label>
+            <defaultValue>gross_total</defaultValue>
+            <options>
+                <option>
+                    <id>gross_total</id>
+                    <name>Order total incl. VAT and shipping (default)</name>
+                    <name lang="de-DE">Bestellsumme inkl. MwSt. und Versand (Standard)</name>
+                </option>
+                <option>
+                    <id>gross_excl_shipping</id>
+                    <name>Order total incl. VAT, excl. shipping</name>
+                    <name lang="de-DE">Bestellsumme inkl. MwSt., ohne Versand</name>
+                </option>
+                <option>
+                    <id>net_total</id>
+                    <name>Order total excl. VAT, incl. shipping</name>
+                    <name lang="de-DE">Bestellsumme ohne MwSt., inkl. Versand</name>
+                </option>
+                <option>
+                    <id>net_excl_shipping</id>
+                    <name>Product revenue only — excl. VAT and shipping</name>
+                    <name lang="de-DE">Nur Produktumsatz — ohne MwSt. und Versand</name>
+                </option>
+            </options>
+            <helpText>Which amount is sent as the purchase value to Facebook, Google Ads, GA4, TikTok and Reddit. Applies to new orders only; the gross VAT and shipping amounts are always sent alongside for reference.</helpText>
+            <helpText lang="de-DE">Welcher Betrag als Kaufwert an Facebook, Google Ads, GA4, TikTok und Reddit gesendet wird. Gilt nur für neue Bestellungen; MwSt.- und Versandbetrag werden zusätzlich immer mitgesendet.</helpText>
+        </input-field>
+
         <input-field type="bool">
             <name>debugMode</name>
             <label>Debug mode</label>

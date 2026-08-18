@@ -81,8 +81,14 @@ bin/console cache:clear
 5. *(Optional)* Enter a custom **API base URL** if your AxiTrace workspace uses
    a custom ingestion domain. Leave blank to use the default
    (`api.axitrace.com`).
-6. **Save** the configuration.
-7. **Place a test order** in your storefront. Within 1–2 minutes the AxiTrace
+6. *(Optional)* Choose the **Conversion value** basis — which order amount is
+   reported as the purchase value to Facebook, Google Ads, GA4, TikTok and
+   Reddit. Default is the order total incl. VAT and shipping; you can exclude
+   shipping and/or VAT (e.g. *Product revenue only — excl. VAT and shipping*
+   for margin-based bidding). The setting applies to new orders only; the
+   gross VAT and shipping amounts are always sent alongside for reference.
+7. **Save** the configuration.
+8. **Place a test order** in your storefront. Within 1–2 minutes the AxiTrace
    dashboard should show the order on the events feed.
 
 ---

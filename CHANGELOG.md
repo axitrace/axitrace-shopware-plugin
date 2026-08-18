@@ -5,6 +5,17 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-08-18
+
+### Added
+
+- **Conversion value setting** (Extensions → AxiTrace Tracking → Configure → *Conversion value*). Choose which order amount is reported as the purchase value to every connected platform: order total incl. VAT and shipping (default, unchanged behaviour), incl. VAT excl. shipping, excl. VAT incl. shipping, or product revenue only (excl. VAT and shipping). Per sales channel, applies to new orders only.
+- Purchase events now always carry the order's gross **VAT** (`tax`) and **shipping** amounts, so GA4 receives the `tax`/`shipping` purchase parameters and merchants can reconcile any value basis downstream.
+
+### Fixed
+
+- Unit test stubs updated for Shopware 6.6 entity signatures (no behaviour change).
+
 ## [0.1.7] - 2026-08-18
 
 ### Added
