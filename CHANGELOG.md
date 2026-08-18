@@ -5,6 +5,23 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-08-18
+
+### Added
+
+- Purchase events now carry the buyer's **first name, last name and state/province** from the billing address. Facebook CAPI and TikTok Events API hash and match on these, and until now they were never sent — measured across live orders, first name and state were absent from 100% of purchases.
+- The **TikTok browser ID** (`_ttp`) and **Reddit browser and click IDs** (`_rdt_uuid`, `_rdt_cid`) are captured at order placement and forwarded, so TikTok Events API and Reddit Conversions API receive an identifier of their own instead of matching on e-mail alone.
+- The AxiTrace **visitor and session IDs** (`vt_vid`, `vt_sid`) are captured and sent, becoming the `external_id` every destination matches on. This stitches the server-side purchase to the buyer's browsing profile; previously purchases carried no external ID at all.
+
+### Fixed
+
+- State is sent as the bare subdivision code. Shopware stores the fully qualified ISO 3166-2 form (`DE-BW`), which Meta's normalizer would have hashed as `debw` and never matched.
+- The plugin version reported to AxiTrace had drifted from the one declared in `composer.json`.
+
+### Notes
+
+- **Update strongly recommended for stores still on 0.1.4 or older.** Buyer IP and User-Agent capture landed in 0.1.5; older stores send the shop server's identity instead, which AxiTrace correctly refuses to forward as the buyer's — leaving those purchases with no IP or User-Agent match key at all.
+
 ## [0.1.6] - 2026-08-13
 
 ### Added
