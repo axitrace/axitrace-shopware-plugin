@@ -5,6 +5,13 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-08-19
+
+### Fixed
+
+- **Critical: buyer-context capture at order placement never fired.** The subscriber was registered for `Shopware\Core\Checkout\Cart\Order\CheckoutOrderPlacedEvent` — a class that does not exist; Shopware dispatches `Shopware\Core\Checkout\Cart\Event\CheckoutOrderPlacedEvent`. Because `::class` on an unknown class resolves silently, the subscription registered but never matched, so the buyer's IP address, User-Agent, Meta cookies (`_fbp`/`_fbc`), Google Analytics cookies, TikTok/Reddit identifiers and AxiTrace visitor/session IDs were **never** written to the order — on every plugin version since 0.1.4. Purchases reached the ad platforms without these match keys unless AxiTrace could recover them server-side from the visitor profile. Fixed the event class; verified end-to-end on a live Shopware 6.6.10: all custom fields are now captured at order placement and present on the purchase payload.
+- Regression guard: a unit test now pins the subscribed event to the exact canonical class name.
+
 ## [0.1.8] - 2026-08-18
 
 ### Added

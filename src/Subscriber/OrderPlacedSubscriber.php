@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace AxitraceShopware6\Subscriber;
 
 use Psr\Log\LoggerInterface;
-use Shopware\Core\Checkout\Cart\Order\CheckoutOrderPlacedEvent;
+use Shopware\Core\Checkout\Cart\Event\CheckoutOrderPlacedEvent;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\RequestStack;
