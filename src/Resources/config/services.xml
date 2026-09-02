@@ -25,6 +25,9 @@
             <argument>%env(default::AXITRACE_API_BASE_URL)%</argument>
         </service>
 
+        <!-- ConsentGate: the whole consent decision as pure functions, no deps -->
+        <service id="AxitraceShopware6\Consent\ConsentGate"/>
+
         <!-- StorefrontSubscriber: injects AxiTrace SDK config into every storefront page -->
         <service id="AxitraceShopware6\Subscriber\StorefrontSubscriber">
             <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
@@ -64,6 +67,7 @@
         <!-- OrderPaidSubscriber: server-side purchase event -->
         <service id="AxitraceShopware6\Subscriber\OrderPaidSubscriber">
             <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
+            <argument type="service" id="AxitraceShopware6\Consent\ConsentGate"/>
             <argument type="service" id="AxitraceShopware6\HttpClient\IngestionApiClient"/>
             <argument type="service" id="AxitraceShopware6\Normalizer\OrderEventNormalizer"/>
             <argument type="service" id="AxitraceShopware6\EventId\UuidV5Generator"/>
@@ -73,12 +77,14 @@
             <tag name="kernel.event_subscriber"/>
         </service>
 
-        <!-- OrderPlacedSubscriber: captures _fbp/_fbc cookies at order placement
-             (the only request-scoped point before the async "paid" purchase dispatch) -->
+        <!-- OrderPlacedSubscriber: captures _fbp/_fbc cookies and the consent decision at
+             order placement (the only request-scoped point before the async "paid" purchase dispatch) -->
         <service id="AxitraceShopware6\Subscriber\OrderPlacedSubscriber">
             <argument type="service" id="request_stack"/>
             <argument type="service" id="order.repository"/>
             <argument type="service" id="logger"/>
+            <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
+            <argument type="service" id="AxitraceShopware6\Consent\ConsentGate"/>
             <tag name="kernel.event_subscriber"/>
         </service>
 

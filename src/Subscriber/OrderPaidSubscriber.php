@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AxitraceShopware6\Subscriber;
 
 use AxitraceShopware6\Config\PluginConfig;
+use AxitraceShopware6\Consent\ConsentGate;
 use AxitraceShopware6\EventId\UuidV5Generator;
 use AxitraceShopware6\Exception\IngestionUnreachableException;
 use AxitraceShopware6\HttpClient\IngestionApiClient;
@@ -43,6 +44,7 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
 {
     public function __construct(
         private readonly PluginConfig $config,
+        private readonly ConsentGate $consentGate,
         private readonly IngestionApiClient $ingestionClient,
         private readonly OrderEventNormalizer $normalizer,
         private readonly UuidV5Generator $uuidGenerator,
@@ -105,6 +107,24 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
         $publicKey = $this->config->getPublicKey($salesChannelId);
         if ($publicKey === '') {
             $this->logger->critical('AxiTrace: public key not configured for sales channel ' . $salesChannelId);
+            return;
+        }
+
+        // Server-side consent gate (mode "all"): honour the decision recorded at
+        // order placement. A missing decision (order placed before the upgrade,
+        // or created in the admin / via API / by an import) is NOT forwarded —
+        // fail-closed by design; see ConsentGate. The skip logs at warning (an
+        // expected, not exceptional, outcome), carries no PII, and deliberately
+        // does NOT touch recordFailure() or the failed-event log — a consent-
+        // denied purchase must never be retried by the scheduled task.
+        $consentMode = $this->config->getConsentMode($salesChannelId);
+        $decision = $order->getCustomFields()[OrderPlacedSubscriber::CUSTOM_FIELD_CONSENT] ?? null;
+        if (!$this->consentGate->allowsServerTracking($consentMode, is_string($decision) ? $decision : null)) {
+            $this->logger->warning('AxiTrace: purchase not forwarded — shopper consent not granted', [
+                'order_number' => (string) $order->getOrderNumber(),
+                'mode'         => $consentMode->value,
+            ]);
+
             return;
         }
 

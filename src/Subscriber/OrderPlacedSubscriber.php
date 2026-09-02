@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace AxitraceShopware6\Subscriber;
 
+use AxitraceShopware6\Config\PluginConfig;
+use AxitraceShopware6\Consent\ConsentGate;
 use Psr\Log\LoggerInterface;
 use Shopware\Core\Checkout\Cart\Event\CheckoutOrderPlacedEvent;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
@@ -53,6 +55,16 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
     public const CUSTOM_FIELD_RDT_CID = 'axitrace_rdt_cid';
     public const CUSTOM_FIELD_VISITOR_ID = 'axitrace_visitor_id';
     public const CUSTOM_FIELD_SESSION_ID = 'axitrace_session_id';
+
+    /**
+     * The shopper's consent decision as a request-scoped signal (see ConsentGate),
+     * persisted so the async "paid" transition can honour it in mode "all".
+     * Values: ConsentGate::DECISION_GRANTED or DECISION_DENIED. Written in every
+     * mode, so a merchant switching modes later has correct data for in-flight
+     * orders. Orders created outside a storefront session (admin/API/import)
+     * carry no such key and are fail-closed in mode "all".
+     */
+    public const CUSTOM_FIELD_CONSENT = 'axitrace_consent';
 
     /**
      * Google Analytics client cookie format: GA1.2.<random>.<first_visit_ts>
@@ -109,6 +121,8 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
         private readonly RequestStack $requestStack,
         private readonly EntityRepository $orderRepository,
         private readonly LoggerInterface $logger,
+        private readonly PluginConfig $config,
+        private readonly ConsentGate $consentGate,
     ) {
     }
 
@@ -136,6 +150,17 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
         }
 
         $customFields = [];
+
+        // Consent decision — recorded in EVERY mode, before any early return:
+        // it is the one key that must always land on the order, even when no
+        // other cookie is present (a declined order has no _fbp, no vt_vid,
+        // nothing). Otherwise mode "all" could not distinguish "declined"
+        // from "no decision" later. The value is only the derived decision —
+        // the raw consent cookie value is never stored.
+        $consentCookieName = $this->config->getConsentCookieName($event->getSalesChannelId());
+        $customFields[self::CUSTOM_FIELD_CONSENT] = $this->consentGate->isGrantSignal(
+            $request->cookies->get($consentCookieName),
+        ) ? ConsentGate::DECISION_GRANTED : ConsentGate::DECISION_DENIED;
 
         $fbp = $this->validate((string) $request->cookies->get('_fbp', ''), self::FBP_PATTERN);
         if ($fbp !== null) {

@@ -18,19 +18,34 @@ use Shopware\Core\Framework\DataAbstractionLayer\Search\AggregationResult\Aggreg
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\EntitySearchResult;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\RangeFilter;
+use Symfony\Component\HttpClient\Exception\TransportException;
+use Symfony\Component\HttpClient\MockHttpClient;
+use Symfony\Component\HttpClient\Response\MockResponse;
 
 final class AxitraceRetryFailedEventsHandlerTest extends TestCase
 {
     private EntityRepository&MockObject $failedEventRepository;
-    private IngestionApiClient&MockObject $ingestionClient;
+    private IngestionApiClient $ingestionClient;
     private LoggerInterface&MockObject $logger;
     private AxitraceRetryFailedEventsHandler $handler;
+
+    /** Number of HTTP requests the mocked transport actually served. */
+    private int $requestCount = 0;
 
     protected function setUp(): void
     {
         $this->failedEventRepository = $this->createMock(EntityRepository::class);
-        $this->ingestionClient       = $this->createMock(IngestionApiClient::class);
         $this->logger                = $this->createMock(LoggerInterface::class);
+        $this->requestCount          = 0;
+    }
+
+    /**
+     * IngestionApiClient is final and cannot be doubled — build the real client
+     * on a MockHttpClient configured per test instead.
+     */
+    private function makeClient(MockHttpClient $http): void
+    {
+        $this->ingestionClient = new IngestionApiClient($http, $this->logger, null);
 
         $this->handler = new AxitraceRetryFailedEventsHandler(
             $this->failedEventRepository,
@@ -39,20 +54,39 @@ final class AxitraceRetryFailedEventsHandlerTest extends TestCase
         );
     }
 
+    private function makeSuccessClient(): void
+    {
+        $this->makeClient(new MockHttpClient(
+            function (string $method, string $url, array $options): MockResponse {
+                $this->requestCount++;
+
+                return new MockResponse('', ['http_code' => 202]);
+            },
+        ));
+    }
+
+    private function makeUnreachableClient(): void
+    {
+        $this->makeClient(new MockHttpClient(
+            function (string $method, string $url, array $options): never {
+                $this->requestCount++;
+
+                throw new TransportException('timeout');
+            },
+        ));
+    }
+
     // -------------------------------------------------------------------------
     // Test 1: Successful retry deletes the row
     // -------------------------------------------------------------------------
 
     public function testSuccessfulRetryDeletesRow(): void
     {
+        $this->makeSuccessClient();
+
         $entity = $this->buildEntity('event-001', '{"event":"Purchase"}', 1);
 
         $this->mockRepositorySearch($entity);
-
-        $this->ingestionClient
-            ->expects(self::once())
-            ->method('sendEvent')
-            ->with(['event' => 'Purchase']);
 
         $this->failedEventRepository
             ->expects(self::once())
@@ -64,6 +98,8 @@ final class AxitraceRetryFailedEventsHandlerTest extends TestCase
             ->method('update');
 
         $this->handler->run();
+
+        self::assertSame(1, $this->requestCount, 'Exactly one ingestion request must have been sent');
     }
 
     // -------------------------------------------------------------------------
@@ -72,14 +108,11 @@ final class AxitraceRetryFailedEventsHandlerTest extends TestCase
 
     public function testFailedRetryIncrementsAttempts(): void
     {
+        $this->makeUnreachableClient();
+
         $entity = $this->buildEntity('event-002', '{"event":"Purchase"}', 1);
 
         $this->mockRepositorySearch($entity);
-
-        $this->ingestionClient
-            ->expects(self::once())
-            ->method('sendEvent')
-            ->willThrowException(new IngestionUnreachableException('timeout'));
 
         $this->failedEventRepository
             ->expects(self::never())
@@ -96,12 +129,19 @@ final class AxitraceRetryFailedEventsHandlerTest extends TestCase
                     && isset($update['lastError']);
             }));
 
+        // Two critical entries: one from the real IngestionApiClient (transport
+        // failure), one from the retry handler naming the event.
         $this->logger
-            ->expects(self::once())
+            ->expects(self::exactly(2))
             ->method('critical')
-            ->with(self::stringContains('event-002'));
+            ->with(self::callback(static function (string $message): bool {
+                return str_contains($message, 'ingestion-api transport failure')
+                    || str_contains($message, 'event-002');
+            }));
 
         $this->handler->run();
+
+        self::assertSame(1, $this->requestCount);
     }
 
     // -------------------------------------------------------------------------
@@ -110,6 +150,8 @@ final class AxitraceRetryFailedEventsHandlerTest extends TestCase
 
     public function testThreeAttemptsRowSkipped(): void
     {
+        $this->makeSuccessClient();
+
         // A search result with no rows simulates the filter excluding attempts >= 3.
         // We verify the criteria passed to search() contains the lt:3 range filter.
         $capturedCriteria = null;
@@ -128,11 +170,13 @@ final class AxitraceRetryFailedEventsHandlerTest extends TestCase
             )
             ->willReturn($this->buildSearchResult($emptyCollection));
 
-        $this->ingestionClient->expects(self::never())->method('sendEvent');
         $this->failedEventRepository->expects(self::never())->method('delete');
         $this->failedEventRepository->expects(self::never())->method('update');
 
         $this->handler->run();
+
+        // No row survived the filter → no ingestion request may have been made.
+        self::assertSame(0, $this->requestCount);
 
         // Confirm the criteria includes a RangeFilter limiting attempts < 3
         self::assertNotNull($capturedCriteria);

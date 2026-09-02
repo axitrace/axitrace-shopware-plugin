@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace AxitraceShopware6\Config;
 
+use AxitraceShopware6\Consent\ConsentGate;
+use AxitraceShopware6\Consent\ConsentMode;
 use AxitraceShopware6\Normalizer\ConversionValueBasis;
 use Psr\Log\LoggerInterface;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
@@ -27,6 +29,13 @@ final class PluginConfig
 
     /** Regex that a valid AxiTrace public key must satisfy. */
     private const PUBLIC_KEY_REGEX = '/^pk_(live|test)_[a-f0-9]{32}$/';
+
+    /**
+     * RFC 6265 cookie-name-safe subset the consent cookie name must match —
+     * it is echoed into the storefront JSON and used in a document.cookie
+     * string match, so it is validated on read, never trusted.
+     */
+    private const CONSENT_COOKIE_REGEX = '/^[A-Za-z0-9_\-.]{1,128}$/';
 
     public function __construct(
         private readonly SystemConfigService $systemConfigService,
@@ -193,6 +202,50 @@ final class PluginConfig
         return ConversionValueBasis::fromConfigValue(
             $this->systemConfigService->get(self::CONFIG_DOMAIN . 'conversionValueBasis', $salesChannelId),
         );
+    }
+
+    /**
+     * The consent mode for the given Sales Channel (see {@see ConsentMode}).
+     * Unset → Off: Shopware writes config.xml `defaultValue`s on install only,
+     * so existing installs return null until the merchant saves the form —
+     * and a plugin update must never start gating tracking by itself.
+     */
+    public function getConsentMode(?string $salesChannelId = null): ConsentMode
+    {
+        return ConsentMode::fromConfigValue(
+            $this->systemConfigService->get(self::CONFIG_DOMAIN . 'consentMode', $salesChannelId),
+        );
+    }
+
+    /**
+     * The cookie whose presence signals consent. Empty/unset → Shopware's own
+     * AxiTrace cookie group cookie. Invalid values fall back to the default —
+     * mirroring getTrackingDomain()'s behaviour: log critical + safe fallback,
+     * never throw (a mistyped setting must not take the storefront down).
+     */
+    public function getConsentCookieName(?string $salesChannelId = null): string
+    {
+        $raw = (string) $this->systemConfigService->get(
+            self::CONFIG_DOMAIN . 'consentCookie',
+            $salesChannelId,
+        );
+
+        $name = trim($raw);
+
+        if ($name === '') {
+            return ConsentGate::DEFAULT_CONSENT_COOKIE;
+        }
+
+        if (preg_match(self::CONSENT_COOKIE_REGEX, $name) !== 1) {
+            $this->logger->critical(
+                'AxiTrace: consentCookie failed format validation, falling back to default',
+                ['sales_channel_id' => $salesChannelId, 'raw' => $name],
+            );
+
+            return ConsentGate::DEFAULT_CONSENT_COOKIE;
+        }
+
+        return $name;
     }
 
     // -------------------------------------------------------------------------

@@ -5,6 +5,22 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-01
+
+### Added
+
+- **Consent gate for the browser SDK** (Extensions → AxiTrace Tracking → Configure → *Cookie consent*). New per-Sales-Channel *Cookie consent mode* setting with three modes: **Load immediately** (default — the behaviour of every previous release), **Wait for consent — browser tracking only**, and **Wait for consent — browser tracking and server-side order events**. In the gated modes the SDK is not loaded at all until the shopper's consent signal arrives — no cookie, no localStorage entry, no network request.
+- Three interchangeable grant signals, all always active while gating is on: Shopware's own cookie consent manager (accepting the AxiTrace group now actually boots the SDK without a reload), any CMP's consent cookie via the new *Consent cookie name* setting (Acris, Usercentrics, Cookiebot, CCM19, …), and the new `window.axitraceConsent.grant()` JavaScript API — a one-line "on accept" callback for any consent tool. `window.axitraceConsent.isGranted()` reports the state.
+- **Server-side purchase gating** as an explicit merchant choice (mode *…and server-side order events*): the shopper's consent decision is recorded on the order at placement (`axitrace_consent` custom field, written in every mode) and honoured at the `paid` transition. Fail-closed: orders created without a storefront session (admin orders, imports, API orders) carry no consent record and are not forwarded; every skip is logged at `warning` with order number and mode, without PII, and is never retried by the scheduled task.
+- **Consent state reported to AxiTrace.** In a gating mode the browser SDK is initialised with `requireConsent` and receives the grant this plugin resolved, so every browser event carries `meta.consent`; the server-side purchase carries the decision recorded on the order as `data.consent`. This is what lets the workspace-level *Cookie consent* policy in the AxiTrace admin panel (Workspace → Domains) apply to Shopware stores.
+- Shopware's AxiTrace cookie group gains an `axitrace-enabled` master entry (value `1`, 365-day expiry) so accepting the group in Shopware's native consent manager grants tracking out of the box.
+- The consent decision for the browser SDK is made in the visitor's own browser, never rendered into the page. Shopware's HTTP cache keys pages on the URI and the `sw-cache-hash` / currency cookies only, so a server-rendered decision would be cached and served to the next visitor — a page cached for a shopper who accepted would have loaded the SDK for one who declined. The plugin renders only the policy (mode + cookie name), which is identical for every visitor and therefore safe to cache.
+
+### Fixed
+
+- **Documentation that described a consent gate the plugin did not have.** The README's *Cookie consent* section, the docs page (cookie-consent section, troubleshooting, GDPR FAQ) and the landing-page FAQ all claimed the browser SDK waited for consent — it did not. All surfaces now describe the real behaviour and the new *Cookie consent mode* setting. The docs also incorrectly named `CookieCollectEvent` as the registration mechanism (the plugin decorates `CookieProviderInterface`), and promised the Shopware 6.8 `CookieGroupCollectEvent` migration "in plugin v0.2.0" — corrected to the decoration pattern and "a future release" respectively.
+- Removed the dead `consentRequired` flag from the storefront config block (no code ever read it).
+
 ## [0.1.9] - 2026-08-19
 
 ### Fixed

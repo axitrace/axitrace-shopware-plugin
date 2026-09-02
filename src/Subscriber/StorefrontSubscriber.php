@@ -71,11 +71,29 @@ final class StorefrontSubscriber implements EventSubscriberInterface
         }
         $sdkBaseUrl = 'https://' . $trackingDomain;
 
+        // Consent policy for the browser SDK. Only the POLICY is rendered here —
+        // the mode and the cookie to watch. The decision itself is deliberately
+        // NOT evaluated server-side and NOT emitted: Shopware's HTTP cache keys
+        // pages on the URI plus sw-cache-hash / currency only (see
+        // HttpCacheKeyGenerator::addCookies) and never on an arbitrary cookie,
+        // so a page rendered for a consenting visitor is served verbatim to the
+        // next anonymous visitor. A server-rendered "granted" would therefore
+        // leak across visitors and boot the SDK for someone who declined. The
+        // bootstrap in meta.html.twig reads the cookie in the visitor's own
+        // browser instead — see ConsentGate::isGrantSignal() for the canonical
+        // grant rule the JavaScript mirrors.
+        $consentMode = $this->config->getConsentMode($salesChannelId);
+        $consentCookie = $this->config->getConsentCookieName($salesChannelId);
+
         $config = [
             'publicKey'       => $publicKey,
             'apiUrl'          => $sdkBaseUrl,
             'pageType'        => $pageType,
-            'consentRequired' => true,
+            'sdkUrl'          => $sdkBaseUrl . '/axitrack.js',
+            'consent'         => [
+                'mode'   => $consentMode->value,
+                'cookie' => $consentCookie,
+            ],
         ];
 
         // S-MED-2: debug key is gated behind the admin-preview header AND the per-channel debug flag.

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AxitraceShopware6\CookieConsent;
 
+use AxitraceShopware6\Consent\ConsentGate;
 use Shopware\Storefront\Framework\Cookie\CookieProviderInterface;
 
 /**
@@ -13,6 +14,16 @@ use Shopware\Storefront\Framework\Cookie\CookieProviderInterface;
  */
 final class AxiTraceCookieProvider implements CookieProviderInterface
 {
+    /**
+     * Shopware's own consent manager sets this cookie (to its declared value)
+     * when the shopper accepts the AxiTrace group and removes it on decline.
+     * It is the default grant signal for the consent gate — see ConsentGate
+     * and PluginConfig::getConsentCookieName(). The literal lives in
+     * ConsentGate::DEFAULT_CONSENT_COOKIE; this is a re-export so the
+     * cookie-provider surface stays self-describing.
+     */
+    public const DEFAULT_CONSENT_COOKIE = ConsentGate::DEFAULT_CONSENT_COOKIE;
+
     public function __construct(
         private readonly CookieProviderInterface $inner,
     ) {}
@@ -25,6 +36,13 @@ final class AxiTraceCookieProvider implements CookieProviderInterface
             'snippet_name'        => 'AxiTrace Tracking',
             'snippet_description' => 'Server-side conversion tracking for ad platforms (Facebook, TikTok, Google Ads). Reads vt_vid, vt_sid, vt_uid cookies set by the AxiTrace browser SDK.',
             'entries'             => [
+                [
+                    'snippet_name'        => 'AxiTrace tracking',
+                    'snippet_description' => 'Enables AxiTrace tracking when you accept this group.',
+                    'cookie'              => self::DEFAULT_CONSENT_COOKIE,
+                    'value'               => '1',
+                    'expiration'          => '365',
+                ],
                 [
                     'snippet_name'        => 'vt_vid',
                     'snippet_description' => 'AxiTrace visitor identifier (2-year expiry).',

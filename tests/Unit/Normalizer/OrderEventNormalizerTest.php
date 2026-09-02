@@ -453,6 +453,38 @@ final class OrderEventNormalizerTest extends TestCase
     }
 
     /**
+     * The consent decision recorded at order placement rides on `data.consent`
+     * so the AxiTrace worker can apply the workspace consent policy to the
+     * server-side purchase. Only the two real decisions are forwarded; an
+     * order without one (pre-0.2.0, admin/API/import) sends no key at all.
+     */
+    public function testConsentDecisionIsForwardedOnlyWhenRecorded(): void
+    {
+        if (!class_exists(\Shopware\Core\Checkout\Order\OrderEntity::class)) {
+            $this->markTestSkipped('Shopware OrderEntity not installed.');
+        }
+
+        $order = $this->makeFullOrder();
+        $order->setCustomFields([
+            \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_CONSENT => 'granted',
+        ]);
+        self::assertSame('granted', $this->normalizer->normalize($order, 'evt-c-1', 'pk_test')['data']['consent']);
+
+        $order->setCustomFields([
+            \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_CONSENT => 'denied',
+        ]);
+        self::assertSame('denied', $this->normalizer->normalize($order, 'evt-c-2', 'pk_test')['data']['consent']);
+
+        $order->setCustomFields([
+            \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_CONSENT => 'maybe',
+        ]);
+        self::assertArrayNotHasKey('consent', $this->normalizer->normalize($order, 'evt-c-3', 'pk_test')['data']);
+
+        $order->setCustomFields([]);
+        self::assertArrayNotHasKey('consent', $this->normalizer->normalize($order, 'evt-c-4', 'pk_test')['data']);
+    }
+
+    /**
      * `data.revenue` and `data.value` must always be the object shape
      * { amount: float, currency: string } — never a bare float.
      */

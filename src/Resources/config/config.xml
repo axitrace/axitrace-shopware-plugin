@@ -71,4 +71,44 @@
             <helpText lang="de-DE">Ausführliche SDK-Konsolenausgabe im Browser. In der Produktion deaktivieren.</helpText>
         </input-field>
     </card>
+
+    <card>
+        <title>Cookie consent</title>
+        <title lang="de-DE">Cookie-Einwilligung</title>
+
+        <input-field type="single-select">
+            <name>consentMode</name>
+            <label>Cookie consent mode</label>
+            <label lang="de-DE">Cookie-Einwilligungsmodus</label>
+            <defaultValue>off</defaultValue>
+            <options>
+                <option>
+                    <id>off</id>
+                    <name>Load immediately (default)</name>
+                    <name lang="de-DE">Sofort laden (Standard)</name>
+                </option>
+                <option>
+                    <id>browser</id>
+                    <name>Wait for consent — browser tracking only</name>
+                    <name lang="de-DE">Auf Einwilligung warten — nur Browser-Tracking</name>
+                </option>
+                <option>
+                    <id>all</id>
+                    <name>Wait for consent — browser tracking and server-side order events</name>
+                    <name lang="de-DE">Auf Einwilligung warten — Browser-Tracking und serverseitige Bestellereignisse</name>
+                </option>
+            </options>
+            <helpText>What each mode does: "Load immediately" (default) loads the browser SDK at once and always sends order events — the behaviour before v0.2.0. "Wait for consent — browser tracking only" holds the browser SDK until the visitor consents; order events are always sent. "Wait for consent — browser tracking and server-side order events" additionally forwards a purchase only when the shopper consented. Applies to orders placed after saving. In the strictest mode, orders created without a storefront session (admin orders, imports, API orders) carry no consent record and are therefore not forwarded — an order with no recorded consent decision is not treated as granted.</helpText>
+            <helpText lang="de-DE">Was die einzelnen Modi bewirken: "Sofort laden" (Standard) lädt das Browser-SDK sofort und sendet immer Bestellereignisse — das Verhalten vor v0.2.0. "Auf Einwilligung warten — nur Browser-Tracking" hält das Browser-SDK zurück, bis der Besucher eingewilligt hat; Bestellereignisse werden immer gesendet. "Auf Einwilligung warten — Browser-Tracking und serverseitige Bestellereignisse" leitet einen Kauf zusätzlich nur weiter, wenn der Kunde eingewilligt hat. Gilt für Bestellungen, die nach dem Speichern angelegt werden. Im strengsten Modus erhalten Bestellungen ohne Storefront-Sitzung (Admin-Bestellungen, Importe, API-Bestellungen) keinen Einwilligungseintrag und werden daher nicht weitergeleitet — eine Bestellung ohne gespeicherte Einwilligungsentscheidung gilt nicht als erteilt.</helpText>
+        </input-field>
+
+        <input-field type="text">
+            <name>consentCookie</name>
+            <label>Consent cookie name</label>
+            <label lang="de-DE">Consent-Cookie-Name</label>
+            <placeholder>axitrace-enabled</placeholder>
+            <helpText>The cookie your consent tool sets once the visitor accepts marketing/statistics. Leave empty to use Shopware's own AxiTrace cookie group (axitrace-enabled). For a third-party banner (Acris, Usercentrics, Cookiebot, CCM19), enter that tool's cookie name — or leave this empty and have the banner call window.axitraceConsent.grant() when the visitor accepts.</helpText>
+            <helpText lang="de-DE">Das Cookie, das Ihr Consent-Tool setzt, sobald der Besucher Marketing/Statistik akzeptiert. Leer lassen, um Shopwares eigene AxiTrace-Cookie-Gruppe zu verwenden (axitrace-enabled). Bei einem Drittanbieter-Banner (Acris, Usercentrics, Cookiebot, CCM19) geben Sie den Cookie-Namen des Tools ein — oder lassen Sie das Feld leer und lassen das Banner window.axitraceConsent.grant() aufrufen, wenn der Besucher akzeptiert.</helpText>
+        </input-field>
+    </card>
 </config>

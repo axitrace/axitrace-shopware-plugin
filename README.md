@@ -112,14 +112,58 @@ hashes it internally per each platform's requirements before transmission.
 
 ## Cookie Consent
 
-The plugin respects your store's cookie consent configuration:
+The plugin ships with a **Cookie consent mode** setting (per Sales Channel,
+*Extensions → My extensions → AxiTrace Tracking → Configure → Cookie consent*).
 
-- If a visitor has not given marketing consent, the AxiTrace JavaScript SDK
-  will not fire client-side events.
-- Server-side `purchase` events are forwarded regardless of consent (they
-  contain no browser-session PII beyond what the customer explicitly provided
-  at checkout). Adjust this behaviour via the *Require consent for server-side
-  events* toggle in the plugin configuration if your legal counsel advises it.
+### The three modes
+
+| Mode | Browser SDK | Server-side order events |
+|---|---|---|
+| **Load immediately** *(default)* | loads at once | always sent |
+| **Wait for consent — browser tracking only** | waits for consent | always sent |
+| **Wait for consent — browser tracking and server-side order events** | waits for consent | sent only when the shopper consented |
+
+The default keeps the behaviour of every release before 0.2.0: nothing is
+gated until you opt in. Changes apply to **orders placed after saving**.
+
+### How a consent grant is detected (all paths always active while gating is on)
+
+1. **Shopware's own cookie consent manager** — the plugin registers an
+   `axitrace-enabled` master entry in its AxiTrace cookie group; accepting the
+   group sets `axitrace-enabled=1` and boots the SDK without a reload.
+2. **Any consent cookie you configure** — enter the cookie name your CMP sets
+   on accept (Acris, Usercentrics, Cookiebot, CCM19, …) under *Consent cookie
+   name*. A bounded poll picks the cookie up within ~500 ms.
+3. **The JavaScript API** — the universal escape hatch. One line from any CMP's
+   "on accept" callback:
+
+```js
+window.axitraceConsent && window.axitraceConsent.grant();
+```
+
+Until a grant signal arrives, the SDK is not loaded at all — no cookie, no
+localStorage entry, no network request. `window.axitraceConsent.isGranted()`
+reports the current state.
+
+Once granted, every browser event carries the consent state (`meta.consent`),
+and the server-side purchase carries the decision recorded on the order
+(`data.consent`), so the workspace-level **Cookie consent** policy in the
+AxiTrace admin panel (Workspace → Domains) can decide whether an event is
+forwarded to the ad platforms.
+
+### Fail-closed for orders without a storefront session
+
+In the strictest mode, orders created without a storefront session (admin
+orders, imports, API orders) carry no consent record and are therefore **not
+forwarded** — an order with no recorded consent decision is not treated as
+granted. Every such skip is logged at `warning`. If you regularly create orders
+outside the storefront, use *Wait for consent — browser tracking only* instead.
+
+### Full guide
+
+Third-party consent platforms (Cookiebot, Usercentrics, CCM19, …), the workspace-level
+forwarding policy, and how to verify a gate actually works are covered in
+[axitrace.com/docs/cookie-consent](https://axitrace.com/docs/cookie-consent).
 
 ---
 

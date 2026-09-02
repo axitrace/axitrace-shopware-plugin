@@ -258,7 +258,9 @@ final class IngestionApiClientTest extends TestCase
         $client = $this->makeClient($mock);
         $client->sendEvent(['event' => 'PageView']);
 
-        self::assertSame(2, $capturedTimeout);
-        self::assertSame(2, $capturedMaxDuration);
+        // Symfony's HttpClient normalises numeric options to float — assert the
+        // value, not the int/float distinction.
+        self::assertSame(2.0, (float) $capturedTimeout);
+        self::assertSame(2.0, (float) $capturedMaxDuration);
     }
 }

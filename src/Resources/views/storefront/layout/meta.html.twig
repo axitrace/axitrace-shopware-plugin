@@ -11,28 +11,33 @@
                 {{ axitraceCheckoutContext | json_encode(960) | raw }}
             </script>
         {% endif %}
-        <script defer src="{{ axitraceScriptUrl }}" data-axitrace-sdk="1"></script>
+        {% if axitraceConfig.consent.mode == 'off' %}
+            {# Gating off: emit the loader tag statically, preserving the pre-0.2.0
+               load timing. It must NOT be emitted on the strength of a server-side
+               consent check — Shopware's HTTP cache does not key on the consent
+               cookie, so a page cached for a consenting visitor would ship this tag
+               (and thus a request carrying the visitor's IP) to someone who declined.
+               In every gating mode the bootstrap below injects this same tag itself,
+               after reading the cookie in the visitor's own browser. #}
+            <script defer src="{{ axitraceScriptUrl }}" data-axitrace-sdk="1"></script>
+        {% endif %}
         <script>
             (function () {
                 'use strict';
 
-                // Bootstrap: the deferred SDK script above loads asynchronously and exposes
-                // window.Axitrace only once it finishes executing. Nothing else in this plugin
-                // ever calls Axitrace.init() — without this block the SDK script loads but sits
-                // inert and no client-side event (PageView/ViewContent/AddToCart/InitiateCheckout)
-                // is ever sent. Poll (bounded) for the SDK global, then init exactly once.
+                // Bootstrap: loads the AxiTrace SDK and calls Axitrace.init() exactly once.
                 //
-                // Consent note: AxiTraceCookieProvider (src/CookieConsent/AxiTraceCookieProvider.php)
-                // only registers vt_vid/vt_sid/vt_uid as informational entries in Shopware's native
-                // cookie-consent-management UI (GDPR "what cookies do we use" disclosure) — it does
-                // not technically block script execution, and the `consentRequired` flag set on the
-                // config object above is not read anywhere in the AxiTrace SDK (web-sdk/velitrack-sdk.js
-                // only honours Do Not Track via `respectDNT`). There is no `_axi_consent` cookie
-                // anywhere in this codebase despite the README/CHANGELOG describing one. Reading the
-                // provider's actual contract as informational-only: this bootstrap does NOT add an
-                // additional technical consent gate. Wiring true enforcement (Shopware's native
-                // `data-cookie` / `text/plain` script-deferral mechanism bound to the registered
-                // cookie group) is a separate, larger change and out of scope here.
+                // Consent gate: StorefrontSubscriber renders only the POLICY (config.consent
+                // .mode and .cookie); the decision is made HERE, in the visitor's own browser.
+                // That split is deliberate — the rendered HTML is shared by Shopware's HTTP
+                // cache across visitors, so a server-side "granted" would leak from one shopper
+                // to the next. When the mode is 'off', or the consent cookie is present in this
+                // browser, the SDK boots immediately. Otherwise this bootstrap writes nothing —
+                // no cookie, no storage entry, no request — until a grant signal arrives, via
+                // one of three interchangeable paths:
+                //   1. Shopware's native consent manager firing 'CookieConfiguration_Update',
+                //   2. the configured consent cookie appearing (bounded 500 ms poll for 60 s),
+                //   3. any CMP calling window.axitraceConsent.grant() from its accept callback.
                 if (window.axitraceBootstrapped) {
                     return;
                 }
@@ -53,18 +58,34 @@
                     return;
                 }
 
+                var consent = config.consent || { mode: 'off' };
+
                 var attempts = 0;
                 var MAX_ATTEMPTS = 40; // bounded poll: 40 * 250ms = 10s, mirrors the Magento pixel bootstrap
                 var POLL_INTERVAL_MS = 250;
 
+                var booted = false;
+                var consentTimer = null;
+
                 function waitForSdk() {
                     if (window.Axitrace && typeof window.Axitrace.init === 'function') {
                         try {
+                            // In a gating mode the SDK is told that this site gates consent
+                            // (so every event carries meta.consent and AxiTrace's workspace
+                            // consent policy can act on it), and is handed the grant this
+                            // bootstrap already resolved — loadAndInit() only ever runs after
+                            // a grant signal, so the SDK must not wait for a second one.
+                            var gated = consent.mode !== 'off';
                             window.Axitrace.init({
                                 publicKey: config.publicKey,
                                 apiUrl: config.apiUrl,
-                                debug: !!config.debug
+                                debug: !!config.debug,
+                                requireConsent: gated,
+                                consentCookie: gated ? consent.cookie : null
                             });
+                            if (gated && typeof window.Axitrace.grant === 'function') {
+                                window.Axitrace.grant();
+                            }
                         } catch (e) {
                             // A failed SDK init must never break the storefront page — analytics
                             // tracking is best-effort. Only surface it when the merchant's own
@@ -82,7 +103,106 @@
                     setTimeout(waitForSdk, POLL_INTERVAL_MS);
                 }
 
-                waitForSdk();
+                // Reads the configured consent cookie and applies the same deny-list as
+                // ConsentGate::isGrantSignal() (PHP, src/Consent/ConsentGate.php) — that is
+                // the canonical definition; keep the two in sync. A present cookie means
+                // grant (Shopware sets '1' on accept and deletes it on decline); the
+                // deny-list defends against CMPs that flip the value instead of deleting.
+                function readConsentCookie() {
+                    var deny = ['', '0', 'false', 'no', 'deny', 'denied', 'opt-out'];
+                    try {
+                        var parts = ('; ' + document.cookie).split('; ' + consent.cookie + '=');
+                        if (parts.length < 2) {
+                            return false;
+                        }
+                        var raw = parts.pop().split(';').shift() || '';
+                        return deny.indexOf(raw.trim().toLowerCase()) === -1;
+                    } catch (e) {
+                        return false;
+                    }
+                }
+
+                function onConsentUpdate(e) {
+                    var granted = false;
+                    try {
+                        granted = !!(e && e.detail && e.detail[consent.cookie]);
+                        // Defensive across Shopware minors: when detail is absent or shaped
+                        // differently, fall back to re-reading the cookie itself (which
+                        // applies the deny-list, so a decline still never boots the SDK).
+                        if (!granted) {
+                            granted = readConsentCookie();
+                        }
+                    } catch (err) {
+                        granted = false;
+                    }
+                    if (granted) {
+                        loadAndInit();
+                    }
+                }
+
+                function stopWaiting() {
+                    // Bounded resource: only the poll. The CookieConfiguration_Update
+                    // listener stays registered forever — a shopper may take minutes in
+                    // the consent dialog, and a permanent listener costs nothing (this
+                    // mirrors Shopware core's own Google Analytics integration).
+                    if (consentTimer !== null) {
+                        clearInterval(consentTimer);
+                        consentTimer = null;
+                    }
+                }
+
+                // Idempotent: concurrent grant signals (e.g. event + poll firing in the
+                // same tick) produce exactly one script tag and exactly one init chain.
+                function loadAndInit() {
+                    if (booted) {
+                        return;
+                    }
+                    booted = true;
+                    stopWaiting();
+
+                    try {
+                        if (!document.querySelector('script[data-axitrace-sdk]') && config.sdkUrl) {
+                            var script = document.createElement('script');
+                            script.src = config.sdkUrl;
+                            script.defer = true;
+                            script.setAttribute('data-axitrace-sdk', '1');
+                            (document.head || document.documentElement).appendChild(script);
+                        }
+                    } catch (e) {
+                        // Injecting the tag must never break the storefront page.
+                    }
+
+                    waitForSdk();
+                }
+
+                // Public API — defined in every mode, so a merchant/CMP can wire the call
+                // unconditionally: window.axitraceConsent && window.axitraceConsent.grant().
+                window.axitraceConsent = window.axitraceConsent || {
+                    grant: function () { loadAndInit(); },
+                    isGranted: function () { return booted; }
+                };
+
+                if (consent.mode === 'off' || readConsentCookie()) {
+                    loadAndInit();
+                } else {
+                    try {
+                        document.addEventListener('CookieConfiguration_Update', onConsentUpdate);
+                    } catch (e) {
+                        // Event-path unavailable; the poll and the grant() API still cover it.
+                    }
+
+                    var ticks = 0;
+                    consentTimer = setInterval(function () {
+                        ticks += 1;
+                        if (readConsentCookie()) {
+                            loadAndInit();
+                            return;
+                        }
+                        if (ticks >= 120) { // bounded: 120 * 500ms = 60s; the event listener stays, the next pageview picks the cookie up server-side
+                            stopWaiting();
+                        }
+                    }, 500);
+                }
             })();
         </script>
     {% endif %}

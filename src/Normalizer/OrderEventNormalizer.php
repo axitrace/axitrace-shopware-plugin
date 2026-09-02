@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AxitraceShopware6\Normalizer;
 
+use AxitraceShopware6\Consent\ConsentGate;
 use AxitraceShopware6\Subscriber\OrderPlacedSubscriber;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Core\System\Country\Aggregate\CountryState\CountryStateEntity;
@@ -58,7 +59,7 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  */
 final class OrderEventNormalizer
 {
-    private const PLUGIN_VERSION = '0.1.9';
+    private const PLUGIN_VERSION = '0.2.0';
     private const SDK_VERSION    = 'shopware-1.0';
     private const SOURCE         = 'shopware';
 
@@ -180,6 +181,17 @@ final class OrderEventNormalizer
         }
         if ($gaSession !== '') {
             $data['ga_session_id'] = $gaSession;
+        }
+
+        // The shopper's consent decision recorded at order placement ('granted' or
+        // 'denied'). AxiTrace's workspace consent policy reads it from `data.consent`
+        // to decide whether this purchase may be forwarded to the ad platforms.
+        // Omitted when the order carries no decision (placed before 0.2.0, or
+        // created in the admin / via API / by an import) so the worker sees
+        // "no consent state" rather than a guessed one.
+        $consent = $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_CONSENT] ?? null;
+        if ($consent === ConsentGate::DECISION_GRANTED || $consent === ConsentGate::DECISION_DENIED) {
+            $data['consent'] = $consent;
         }
 
         // Human-readable order number (e.g. "10042") — becomes the GA4 transaction_id

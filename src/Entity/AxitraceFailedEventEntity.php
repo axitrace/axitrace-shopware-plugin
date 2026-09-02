@@ -17,7 +17,10 @@ final class AxitraceFailedEventEntity extends Entity
 
     public int $attempts = 0;
 
-    public \DateTimeInterface $createdAt;
+    // Must match the parent Entity property type exactly (?\DateTimeInterface) —
+    // PHP property types are invariant, and a narrower type here fatals depending
+    // on class-load order.
+    public ?\DateTimeInterface $createdAt = null;
 
     public ?\DateTimeInterface $lastAttemptAt = null;
 

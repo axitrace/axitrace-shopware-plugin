@@ -6,7 +6,10 @@ namespace AxitraceShopware6\Tests\Unit\Config;
 
 use AxitraceShopware6\Config\AxitraceCrypto;
 use AxitraceShopware6\Config\PluginConfig;
+use AxitraceShopware6\Consent\ConsentGate;
+use AxitraceShopware6\Consent\ConsentMode;
 use AxitraceShopware6\Normalizer\ConversionValueBasis;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
@@ -81,7 +84,7 @@ final class PluginConfigTest extends TestCase
             ->method('critical')
             ->with(
                 self::stringContains('publicKey failed format validation'),
-                self::isArray(),
+                self::isType('array'),
             );
 
         self::assertSame('', $this->pluginConfig->getPublicKey());
@@ -309,5 +312,92 @@ final class PluginConfigTest extends TestCase
         $this->logger->expects(self::never())->method('critical');
 
         self::assertSame(self::VALID_PK, $this->pluginConfig->getPublicKey());
+    }
+
+    // -------------------------------------------------------------------------
+    // Consent mode
+    // -------------------------------------------------------------------------
+
+    public function testGetConsentModeDefaultsToOffWhenUnset(): void
+    {
+        // The update-path case: existing installs never saved the config form,
+        // so SystemConfigService returns null. Off is the only safe answer.
+        $this->configService->method('get')
+            ->with('AxitraceShopware6.config.consentMode', null)
+            ->willReturn(null);
+
+        $this->logger->expects(self::never())->method('critical');
+
+        self::assertSame(ConsentMode::Off, $this->pluginConfig->getConsentMode());
+    }
+
+    public function testGetConsentModeReadsConfiguredOptionPerSalesChannel(): void
+    {
+        $this->configService->method('get')
+            ->willReturnCallback(static fn (string $key, ?string $channel) => match ($channel) {
+                'channel-a' => 'browser',
+                'channel-b' => 'all',
+                'channel-c' => 'garbage-value',
+                default => null,
+            });
+
+        self::assertSame(ConsentMode::Browser, $this->pluginConfig->getConsentMode('channel-a'));
+        self::assertSame(ConsentMode::All, $this->pluginConfig->getConsentMode('channel-b'));
+        // Invalid values never gate tracking — they fall back to Off.
+        self::assertSame(ConsentMode::Off, $this->pluginConfig->getConsentMode('channel-c'));
+    }
+
+    // -------------------------------------------------------------------------
+    // Consent cookie name
+    // -------------------------------------------------------------------------
+
+    public function testGetConsentCookieNameDefaultsWhenUnset(): void
+    {
+        foreach ([null, '', '   '] as $raw) {
+            $this->configService->method('get')->willReturn($raw);
+
+            self::assertSame(
+                ConsentGate::DEFAULT_CONSENT_COOKIE,
+                $this->pluginConfig->getConsentCookieName(),
+                'Input ' . var_export($raw, true) . ' must fall back to the default cookie',
+            );
+        }
+    }
+
+    public function testGetConsentCookieNameReturnsTrimmedCustomName(): void
+    {
+        $this->configService->method('get')->willReturn('  my_cmp_ok  ');
+
+        self::assertSame('my_cmp_ok', $this->pluginConfig->getConsentCookieName());
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function invalidCookieNameProvider(): iterable
+    {
+        yield 'space inside'       => ['a b'];
+        yield 'semicolon'          => ['a;b'];
+        yield 'equals sign'        => ['a=b'];
+        yield '200-char overflow'  => [str_repeat('a', 200)];
+    }
+
+    #[DataProvider('invalidCookieNameProvider')]
+    public function testGetConsentCookieNameInvalidInputFallsBackWithOneCriticalLog(string $raw): void
+    {
+        $this->configService->method('get')->willReturn($raw);
+
+        $this->logger
+            ->expects(self::once())
+            ->method('critical')
+            ->with(
+                self::stringContains('consentCookie failed format validation'),
+                self::callback(static fn (array $context): bool => isset($context['raw']) && array_key_exists('sales_channel_id', $context)),
+            );
+
+        self::assertSame(
+            ConsentGate::DEFAULT_CONSENT_COOKIE,
+            $this->pluginConfig->getConsentCookieName('channel-x'),
+        );
     }
 }
