@@ -33,33 +33,33 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  *   }
  *
  * IMPORTANT: Both `revenue` and `value` are ALWAYS the object shape
- * { "amount": float, "currency": string } — never a bare float.
+ * { "amount": float, "currency": string } - never a bare float.
  * The event-worker prepareTransaction (v0.1.2+) handles both shapes,
  * but we standardize on the object shape going forward.
  *
- * PII is forwarded in plain text — the Facebook CAPI PHP SDK and TikTok
+ * PII is forwarded in plain text - the Facebook CAPI PHP SDK and TikTok
  * Events API auto-hash email/phone. Only `external_id` needs manual SHA-256,
  * and it is not included in v0.1.0.
  *
  * Currency: read via $order->getCurrency()?->getIsoCode() (presentation
- * currency, not base currency) — matches the lesson from AstrophotoMarket.
+ * currency, not base currency) - matches the lesson from AstrophotoMarket.
  *
  * Required associations to load before calling normalize():
  *   currency, billingAddress, billingAddress.country, orderCustomer, lineItems
  *
  * fbp/fbc: read from $order->getCustomFields() (a base scalar field, always
- * hydrated — no addAssociation() needed), written by OrderPlacedSubscriber at
+ * hydrated - no addAssociation() needed), written by OrderPlacedSubscriber at
  * order-placement time.
  *
  * `revenue`/`value` report the amount selected by the merchant's "conversion value"
  * setting ({@see ConversionValueBasis}); the default is the historical order total
  * including VAT and shipping. Products keep their unit prices as charged.
  *
- * This is a pure mapper — no I/O, no side effects.
+ * This is a pure mapper - no I/O, no side effects.
  */
 final class OrderEventNormalizer
 {
-    private const PLUGIN_VERSION = '0.2.0';
+    private const PLUGIN_VERSION = '0.3.0';
     private const SDK_VERSION    = 'shopware-1.0';
     private const SOURCE         = 'shopware';
 
@@ -68,7 +68,7 @@ final class OrderEventNormalizer
     public function __construct(?ConversionValueResolver $valueResolver = null)
     {
         // Optional so the class stays constructible with `new OrderEventNormalizer()`
-        // (services.xml, tests) — the resolver is a pure, stateless helper.
+        // (services.xml, tests) - the resolver is a pure, stateless helper.
         $this->valueResolver = $valueResolver ?? new ConversionValueResolver();
     }
 
@@ -95,7 +95,7 @@ final class OrderEventNormalizer
 
         // Order amounts. Shopware always exposes the gross and net grand totals;
         // the shipping breakdown lives on the CalculatedPrice, which is null on
-        // some programmatically created orders — treat that as free shipping.
+        // some programmatically created orders - treat that as free shipping.
         $amountTotal   = (float) $order->getAmountTotal();
         $amountNet     = (float) $order->getAmountNet();
         $shippingCosts = $order->getShippingCosts();
@@ -141,7 +141,7 @@ final class OrderEventNormalizer
             'value'    => $money,
         ];
 
-        // Captured at order placement by OrderPlacedSubscriber (request-scoped — the
+        // Captured at order placement by OrderPlacedSubscriber (request-scoped - the
         // "paid" transition that triggers this normalizer runs asynchronously for many
         // payment methods and has no cookie access). Omitted entirely when absent so
         // the payload stays minimal for stores without the corresponding cookies.
@@ -170,7 +170,7 @@ final class OrderEventNormalizer
             }
         }
 
-        // Google Analytics cookies captured at order placement — lets the server-side
+        // Google Analytics cookies captured at order placement - lets the server-side
         // GA4 Measurement Protocol purchase carry the buyer's real client_id/session
         // so GA4 stitches it to their on-site session instead of a generated id.
         $ga = (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_GA] ?? '');
@@ -194,12 +194,12 @@ final class OrderEventNormalizer
             $data['consent'] = $consent;
         }
 
-        // Human-readable order number (e.g. "10042") — becomes the GA4 transaction_id
+        // Human-readable order number (e.g. "10042") - becomes the GA4 transaction_id
         // and the ClickHouse order_id so merchants can reconcile against their shop admin.
         $data['orderNumber'] = (string) ($order->getOrderNumber() ?? '');
 
         // VAT and shipping contained in the order, always gross and independent of the
-        // configured value basis — GA4 reports them as the purchase `tax`/`shipping`
+        // configured value basis - GA4 reports them as the purchase `tax`/`shipping`
         // params, and they let the merchant reconstruct any other basis downstream.
         $data['tax']      = max(0.0, round($amountTotal - $amountNet, 2));
         $data['shipping'] = max(0.0, round($shippingGross, 2));
@@ -230,7 +230,7 @@ final class OrderEventNormalizer
             'billingCity'           => $billing !== null ? (string) $billing->getCity() : '',
             'billingCountry'        => $billing?->getCountry()?->getIso() ?? '',
             'billingZip'            => $billing !== null ? (string) $billing->getZipcode() : '',
-            // State/province — Meta `st`, TikTok `state`.
+            // State/province - Meta `st`, TikTok `state`.
             'billingState'          => $this->normalizeStateCode($billing?->getCountryState()),
             'data'                  => $data,
         ];
@@ -240,7 +240,7 @@ final class OrderEventNormalizer
      * Subdivision code for the buyer's state/province.
      *
      * Shopware stores ISO 3166-2 short codes ("DE-BW", "US-CA"), but Meta expects the
-     * bare subdivision ("bw", "ca") — its normalizer strips punctuation, so an unstripped
+     * bare subdivision ("bw", "ca") - its normalizer strips punctuation, so an unstripped
      * "DE-BW" would hash as "debw" and never match. The country prefix is therefore
      * removed here; the full state name is the fallback when no code exists.
      */

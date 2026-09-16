@@ -21,7 +21,7 @@ use Symfony\Component\HttpFoundation\RequestStack;
  * Why this exists: the purchase event itself is sent later, on the
  * order_transaction "paid" state transition (see OrderPaidSubscriber), which for
  * asynchronous payment methods (PayPal, redirect gateways, webhook confirmations)
- * runs OUTSIDE the customer's own request — no cookies are available there.
+ * runs OUTSIDE the customer's own request - no cookies are available there.
  * CheckoutOrderPlacedEvent fires synchronously within the customer's own checkout
  * request, so it is the only reliable point at which these cookies can be read.
  *
@@ -29,7 +29,7 @@ use Symfony\Component\HttpFoundation\RequestStack;
  * partial update via EntityRepository::update() merges keys rather than replacing
  * the whole object, so this cannot clobber custom fields set by other plugins.
  *
- * MUST NEVER throw — an uncaught exception here would abort the checkout entirely.
+ * MUST NEVER throw - an uncaught exception here would abort the checkout entirely.
  */
 final class OrderPlacedSubscriber implements EventSubscriberInterface
 {
@@ -45,7 +45,7 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
      * (_rdt_cid), plus the AxiTrace visitor/session cookies.
      *
      * Without these the purchase reaches TikTok Events API and Reddit CAPI carrying no
-     * platform identifier of its own, and Meta/TikTok/Reddit get no external_id — measured
+     * platform identifier of its own, and Meta/TikTok/Reddit get no external_id - measured
      * 2026-08-18 across 893 live orders: external_id 0%. The browser events on the very
      * same visit carry all of them, so the data exists; it was simply never captured at
      * the one point where the purchase can still see the customer's cookies.
@@ -61,10 +61,21 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
      * persisted so the async "paid" transition can honour it in mode "all".
      * Values: ConsentGate::DECISION_GRANTED or DECISION_DENIED. Written in every
      * mode, so a merchant switching modes later has correct data for in-flight
-     * orders. Orders created outside a storefront session (admin/API/import)
-     * carry no such key and are fail-closed in mode "all".
+     * orders, but only when a decision is actually provable (see
+     * resolveConsentDecision()). Orders created outside a storefront session
+     * (admin/API/import) carry no such key and are fail-closed in mode "all".
      */
     public const CUSTOM_FIELD_CONSENT = 'axitrace_consent';
+
+    /**
+     * Shopware's own "the visitor answered the cookie banner" marker cookie
+     * (Shopware\Core\Content\Cookie\Service\CookieProvider registers it as the
+     * required-cookies entry). Shopware's cookie configuration writes it the
+     * moment the shopper saves any choice, so it is the only proof this plugin
+     * has that a decision was made at all, as opposed to a store with no
+     * banner or a visitor who has not answered it yet.
+     */
+    public const SHOPWARE_DECISION_COOKIE = 'cookie-preference';
 
     /**
      * Google Analytics client cookie format: GA1.2.<random>.<first_visit_ts>
@@ -101,7 +112,7 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
     private const RDT_CID_PATTERN = '/^v\d+\|\d{10,16}\|[A-Za-z0-9_.-]{8,500}$/';
 
     /**
-     * AxiTrace visitor/session cookies (vt_vid, vt_sid) — UUIDs written by the web SDK.
+     * AxiTrace visitor/session cookies (vt_vid, vt_sid) - UUIDs written by the web SDK.
      */
     private const AXITRACE_ID_PATTERN = '/^[A-Za-z0-9_-]{8,64}$/';
 
@@ -151,16 +162,23 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
 
         $customFields = [];
 
-        // Consent decision — recorded in EVERY mode, before any early return:
-        // it is the one key that must always land on the order, even when no
-        // other cookie is present (a declined order has no _fbp, no vt_vid,
-        // nothing). Otherwise mode "all" could not distinguish "declined"
-        // from "no decision" later. The value is only the derived decision —
-        // the raw consent cookie value is never stored.
+        // Consent decision - recorded in EVERY mode, before any early return:
+        // it is the one key that must land on the order whenever a decision
+        // exists, even when no other cookie is present (a declined order has
+        // no _fbp, no vt_vid, nothing). Otherwise mode "all" could not
+        // distinguish "declined" from "no decision" later. The value is only
+        // the derived decision - the raw consent cookie value is never stored.
         $consentCookieName = $this->config->getConsentCookieName($event->getSalesChannelId());
-        $customFields[self::CUSTOM_FIELD_CONSENT] = $this->consentGate->isGrantSignal(
-            $request->cookies->get($consentCookieName),
-        ) ? ConsentGate::DECISION_GRANTED : ConsentGate::DECISION_DENIED;
+        $rawConsentCookie = $request->cookies->get($consentCookieName);
+        $rawDecisionMarker = $request->cookies->get(self::SHOPWARE_DECISION_COOKIE);
+
+        $consent = $this->resolveConsentDecision(
+            is_string($rawConsentCookie) ? $rawConsentCookie : null,
+            is_string($rawDecisionMarker) ? $rawDecisionMarker : null,
+        );
+        if ($consent !== null) {
+            $customFields[self::CUSTOM_FIELD_CONSENT] = $consent;
+        }
 
         $fbp = $this->validate((string) $request->cookies->get('_fbp', ''), self::FBP_PATTERN);
         if ($fbp !== null) {
@@ -174,7 +192,7 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
 
         // Real buyer IP + User-Agent. The purchase event itself is dispatched later
         // (order_transaction "paid" transition) from a server context where the
-        // ingestion API would only ever see the shop server's IP and HTTP client UA —
+        // ingestion API would only ever see the shop server's IP and HTTP client UA -
         // which degrades Facebook CAPI match quality. Capture the genuine values here.
         $clientIp = (string) ($request->getClientIp() ?? '');
         if ($clientIp !== '' && filter_var($clientIp, FILTER_VALIDATE_IP) !== false) {
@@ -186,7 +204,7 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
             $customFields[self::CUSTOM_FIELD_CLIENT_UA] = mb_substr($userAgent, 0, self::MAX_UA_LENGTH);
         }
 
-        // GA cookies — let the server-side purchase reach GA4 with the buyer's real
+        // GA cookies - let the server-side purchase reach GA4 with the buyer's real
         // client_id/session so it stitches to their on-site session instead of
         // appearing as an unattributed new user.
         $ga = $this->validate((string) $request->cookies->get('_ga', ''), self::GA_PATTERN);
@@ -222,6 +240,35 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
             'id'           => $event->getOrder()->getId(),
             'customFields' => $customFields,
         ]], $event->getContext());
+    }
+
+    /**
+     * The shopper's consent decision, or null when no decision is provable.
+     *
+     * A present AxiTrace consent cookie is a grant (ConsentGate::isGrantSignal()
+     * is the canonical definition). Its absence on its own is NOT a refusal: a
+     * store with no cookie banner, a visitor who has not answered the banner
+     * yet and an order created outside a storefront session all look exactly
+     * the same from here. Only Shopware's own cookie-preference marker proves
+     * the visitor answered, so "denied" is stamped only alongside it. Without
+     * that proof the order carries no consent key at all and the AxiTrace
+     * workspace consent policy decides what happens to the purchase, rather
+     * than a refusal this plugin invented.
+     *
+     * An empty marker value is treated as no marker: it proves nothing, and
+     * the safe answer to "no proof" is no stamp.
+     */
+    public function resolveConsentDecision(?string $consentCookieValue, ?string $decisionMarkerValue): ?string
+    {
+        if ($this->consentGate->isGrantSignal($consentCookieValue)) {
+            return ConsentGate::DECISION_GRANTED;
+        }
+
+        if ($decisionMarkerValue === null || trim($decisionMarkerValue) === '') {
+            return null;
+        }
+
+        return ConsentGate::DECISION_DENIED;
     }
 
     /**
