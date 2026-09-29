@@ -55,6 +55,7 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
     public const CUSTOM_FIELD_RDT_CID = 'axitrace_rdt_cid';
     public const CUSTOM_FIELD_VISITOR_ID = 'axitrace_visitor_id';
     public const CUSTOM_FIELD_SESSION_ID = 'axitrace_session_id';
+    public const CUSTOM_FIELD_SOURCE_URL = 'axitrace_source_url';
 
     /**
      * The shopper's consent decision as a request-scoped signal (see ConsentGate),
@@ -161,6 +162,11 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
         }
 
         $customFields = [];
+
+        $sourceUrl = $request->getSchemeAndHttpHost() . $request->getPathInfo();
+        if (filter_var($sourceUrl, FILTER_VALIDATE_URL) !== false) {
+            $customFields[self::CUSTOM_FIELD_SOURCE_URL] = $sourceUrl;
+        }
 
         // Consent decision - recorded in EVERY mode, before any early return:
         // it is the one key that must land on the order whenever a decision

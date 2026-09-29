@@ -62,6 +62,20 @@
             <helpText lang="de-DE">Welcher Betrag als Kaufwert an Facebook, Google Ads, GA4, TikTok und Reddit gesendet wird. Gilt nur für neue Bestellungen; MwSt.- und Versandbetrag werden zusätzlich immer mitgesendet.</helpText>
         </input-field>
 
+        <input-field type="single-select">
+            <name>pinterestCatalogIdMode</name>
+            <label>Pinterest catalog product ID</label>
+            <label lang="de-DE">Pinterest-Katalog-Produkt-ID</label>
+            <defaultValue>legacy</defaultValue>
+            <options>
+                <option><id>legacy</id><name>Legacy identifiers (default)</name><name lang="de-DE">Bisherige Kennungen (Standard)</name></option>
+                <option><id>product_number</id><name>Shopware product number</name><name lang="de-DE">Shopware-Produktnummer</name></option>
+                <option><id>product_number_lowercase</id><name>Shopware product number, lowercase</name><name lang="de-DE">Shopware-Produktnummer, kleingeschrieben</name></option>
+            </options>
+            <helpText>Optional Pinterest-only catalog matching. Other advertising platforms keep their existing product identifiers. If a variant has no product number, its Shopware UUID is used as a deterministic fallback.</helpText>
+            <helpText lang="de-DE">Optionale, nur für Pinterest verwendete Katalogzuordnung. Andere Werbeplattformen behalten ihre bisherigen Produktkennungen. Fehlt bei einer Variante die Produktnummer, wird ihre Shopware-UUID als deterministischer Ersatz verwendet.</helpText>
+        </input-field>
+
         <input-field type="bool">
             <name>debugMode</name>
             <label>Debug mode</label>

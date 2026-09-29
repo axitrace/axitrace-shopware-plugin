@@ -17,11 +17,6 @@ final class AxitraceFailedEventEntity extends Entity
 
     public int $attempts = 0;
 
-    // Must match the parent Entity property type exactly (?\DateTimeInterface) —
-    // PHP property types are invariant, and a narrower type here fatals depending
-    // on class-load order.
-    public ?\DateTimeInterface $createdAt = null;
-
     public ?\DateTimeInterface $lastAttemptAt = null;
 
     public ?string $lastError = null;
@@ -54,16 +49,6 @@ final class AxitraceFailedEventEntity extends Entity
     public function setAttempts(int $attempts): void
     {
         $this->attempts = $attempts;
-    }
-
-    public function getCreatedAt(): \DateTimeInterface
-    {
-        return $this->createdAt;
-    }
-
-    public function setCreatedAt(\DateTimeInterface $createdAt): void
-    {
-        $this->createdAt = $createdAt;
     }
 
     public function getLastAttemptAt(): ?\DateTimeInterface

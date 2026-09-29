@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AxitraceShopware6\Normalizer;
 
 use AxitraceShopware6\Consent\ConsentGate;
+use AxitraceShopware6\Config\PinterestCatalogIdMode;
 use AxitraceShopware6\Subscriber\OrderPlacedSubscriber;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Core\System\Country\Aggregate\CountryState\CountryStateEntity;
@@ -59,17 +60,19 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  */
 final class OrderEventNormalizer
 {
-    private const PLUGIN_VERSION = '0.3.0';
+    private const PLUGIN_VERSION = '0.4.2';
     private const SDK_VERSION    = 'shopware-1.0';
     private const SOURCE         = 'shopware';
 
     private readonly ConversionValueResolver $valueResolver;
+    private readonly PinterestCatalogIdResolver $pinterestIdResolver;
 
-    public function __construct(?ConversionValueResolver $valueResolver = null)
+    public function __construct(?ConversionValueResolver $valueResolver = null, ?PinterestCatalogIdResolver $pinterestIdResolver = null)
     {
         // Optional so the class stays constructible with `new OrderEventNormalizer()`
         // (services.xml, tests) - the resolver is a pure, stateless helper.
         $this->valueResolver = $valueResolver ?? new ConversionValueResolver();
+        $this->pinterestIdResolver = $pinterestIdResolver ?? new PinterestCatalogIdResolver();
     }
 
     /**
@@ -87,6 +90,7 @@ final class OrderEventNormalizer
         string $eventId,
         string $workspacePublicKey,
         ConversionValueBasis $valueBasis = ConversionValueBasis::GrossTotal,
+        PinterestCatalogIdMode $pinterestCatalogIdMode = PinterestCatalogIdMode::Legacy,
     ): array {
         $orderCurrency  = $order->getCurrency()?->getIsoCode() ?? '';
         $billing        = $order->getBillingAddress();
@@ -110,14 +114,41 @@ final class OrderEventNormalizer
                     continue;
                 }
 
-                $products[] = [
-                    'productId' => (string) ($item->getProductId() ?? $item->getId()),
-                    'sku'       => (string) ($item->getPayload()['productNumber'] ?? ''),
+                $productId = (string) ($item->getProductId() ?? $item->getId());
+                $payload = $item->getPayload();
+                $productNumber = (string) ($payload['productNumber'] ?? '');
+                $product = [
+                    'productId' => $productId,
+                    'sku'       => $productNumber,
                     'name'      => (string) $item->getLabel(),
                     'quantity'  => (float) $item->getQuantity(),
                     'price'     => (float) $item->getUnitPrice(),
                     'currency'  => $orderCurrency,
                 ];
+                $variation = $this->formatVariation($payload['options'] ?? null);
+                if ($variation !== '') {
+                    $product['variant'] = $variation;
+                }
+                $associatedProduct = $item->getProduct();
+                $brand = trim((string) ($associatedProduct?->getManufacturer()?->getTranslation('name') ?? $associatedProduct?->getManufacturer()?->getName() ?? ''));
+                $category = trim((string) ($associatedProduct?->getCategories()?->first()?->getTranslation('name') ?? $associatedProduct?->getCategories()?->first()?->getName() ?? ''));
+                if ($brand === '' && isset($payload['brand']) && is_string($payload['brand'])) {
+                    $brand = trim($payload['brand']);
+                }
+                if ($category === '' && isset($payload['category']) && is_string($payload['category'])) {
+                    $category = trim($payload['category']);
+                }
+                if ($brand !== '') {
+                    $product['brand'] = $brand;
+                }
+                if ($category !== '') {
+                    $product['category'] = $category;
+                }
+                $pinterestId = $this->pinterestIdResolver->resolve($pinterestCatalogIdMode, $productNumber, $productId);
+                if ($pinterestId !== null) {
+                    $product['pinterest_id'] = $pinterestId;
+                }
+                $products[] = $product;
             }
         }
 
@@ -204,6 +235,10 @@ final class OrderEventNormalizer
         $data['tax']      = max(0.0, round($amountTotal - $amountNet, 2));
         $data['shipping'] = max(0.0, round($shippingGross, 2));
         $data['valueBasis'] = $valueBasis->value;
+        $sourceUrl = (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_SOURCE_URL] ?? '');
+        if ($sourceUrl !== '') {
+            $data['url'] = $sourceUrl;
+        }
 
         return [
             'event'                 => 'transaction.charge',
@@ -234,6 +269,25 @@ final class OrderEventNormalizer
             'billingState'          => $this->normalizeStateCode($billing?->getCountryState()),
             'data'                  => $data,
         ];
+    }
+
+    private function formatVariation(mixed $variation): string
+    {
+        if (!is_array($variation)) {
+            return '';
+        }
+
+        $parts = [];
+        foreach ($variation as $value) {
+            if (is_array($value)) {
+                $value = $value['option'] ?? $value['name'] ?? null;
+            }
+            if (is_scalar($value) && trim((string) $value) !== '') {
+                $parts[] = trim((string) $value);
+            }
+        }
+
+        return implode(' / ', $parts);
     }
 
     /**

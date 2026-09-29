@@ -6,6 +6,7 @@ namespace AxitraceShopware6\Tests\Unit\Config;
 
 use AxitraceShopware6\Config\AxitraceCrypto;
 use AxitraceShopware6\Config\PluginConfig;
+use AxitraceShopware6\Config\PinterestCatalogIdMode;
 use AxitraceShopware6\Consent\ConsentGate;
 use AxitraceShopware6\Consent\ConsentMode;
 use AxitraceShopware6\Normalizer\ConversionValueBasis;
@@ -298,6 +299,16 @@ final class PluginConfigTest extends TestCase
         self::assertSame(ConversionValueBasis::NetExclShipping, $this->pluginConfig->getConversionValueBasis('channel-a'));
         // Invalid values never break tracking — they fall back to the default.
         self::assertSame(ConversionValueBasis::GrossTotal, $this->pluginConfig->getConversionValueBasis('channel-b'));
+    }
+
+    public function testPinterestCatalogIdModeIsLegacyUnlessExplicitlyConfigured(): void
+    {
+        $this->configService->method('get')->willReturnCallback(
+            static fn (string $key, ?string $channel) => $channel === 'lowercase' ? 'product_number_lowercase' : null,
+        );
+
+        self::assertSame(PinterestCatalogIdMode::Legacy, $this->pluginConfig->getPinterestCatalogIdMode());
+        self::assertSame(PinterestCatalogIdMode::ProductNumberLowercase, $this->pluginConfig->getPinterestCatalogIdMode('lowercase'));
     }
 
     public function testGetPublicKeyAcceptsLegacyPlaintextValue(): void

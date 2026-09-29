@@ -5,6 +5,38 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-09-29
+
+### Fixed
+- Customer enrichment now follows the effective consent policy supplied by SDK 0.21.2. With workspace consent checks and plugin gating off, no consent cookie is required. Explicit plugin gates still require consent.
+
+## [0.4.1] - 2026-09-28
+
+### Fixed
+- Explicitly load the billing country state for paid-order events, so an available canton/province is included in server-side matching data.
+
+## [0.4.0] - 2026-09-28
+
+### Added
+
+- Optional Pinterest-only catalog identifiers based on the actual Shopware variant product number, with a lowercase mode for normalized feeds and a deterministic UUID fallback when a product number is unavailable. Other destinations keep their existing identifiers.
+- A private, no-store storefront-context endpoint that returns the current cart and current-sales-channel product metadata after successful cart changes. Customer match fields are included only when both an explicit consent header and the configured consent cookie prove a grant; no customer data is placed in shared HTML.
+- Product brand, category and variant metadata where Shopware has loaded it, plus priced GA4-shaped cart items and total item quantity.
+- Query-free checkout source URLs on server-side purchase events.
+
+### Changed
+
+- Product context now lives in the global metadata template so theme overrides of the configurator block cannot remove it.
+- Storefront context failures are logged with class and message and displayed to the merchant instead of being silently swallowed.
+- Purchase remains a server-only event emitted on the paid transition; this release does not add a browser Purchase event.
+
+### Fixed
+
+- Read product and checkout pages through Shopware's supported render-event parameters, restoring context that was previously lost after an unavailable method call.
+- Explicitly load product categories for the initial product-page PageVisit and prefer translated brand/category names with a raw-name fallback.
+- Escape inline JSON against script-closing product text, covered by an actual Twig rendering regression test.
+- Remove a redundant inherited creation-time property declaration that caused a PHP fatal error on Shopware 6.6. The plugin suite passes against both 6.6.10.27 and 6.7.13.1.
+
 ## [0.3.0] - 2026-09-16
 
 ### Changed

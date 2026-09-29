@@ -204,6 +204,13 @@ final class PluginConfig
         );
     }
 
+    public function getPinterestCatalogIdMode(?string $salesChannelId = null): PinterestCatalogIdMode
+    {
+        return PinterestCatalogIdMode::fromConfigValue(
+            $this->systemConfigService->get(self::CONFIG_DOMAIN . 'pinterestCatalogIdMode', $salesChannelId),
+        );
+    }
+
     /**
      * The consent mode for the given Sales Channel (see {@see ConsentMode}).
      * Unset → Off: Shopware writes config.xml `defaultValue`s on install only,

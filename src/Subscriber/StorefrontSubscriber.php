@@ -5,11 +5,15 @@ declare(strict_types=1);
 namespace AxitraceShopware6\Subscriber;
 
 use AxitraceShopware6\Config\PluginConfig;
+use AxitraceShopware6\Normalizer\PinterestCatalogIdResolver;
+use Psr\Log\LoggerInterface;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Storefront\Event\StorefrontRenderEvent;
 use Shopware\Storefront\Page\Checkout\Confirm\CheckoutConfirmPage;
 use Shopware\Storefront\Page\Product\ProductPage;
+use Shopware\Storefront\Page\Product\ProductPageCriteriaEvent;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
  * Injects the AxiTrace SDK config block into every storefront page render.
@@ -24,14 +28,27 @@ final class StorefrontSubscriber implements EventSubscriberInterface
 
     public function __construct(
         private readonly PluginConfig $config,
+        private readonly PinterestCatalogIdResolver $pinterestIdResolver,
+        private readonly UrlGeneratorInterface $urlGenerator,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
     public static function getSubscribedEvents(): array
     {
         return [
+            ProductPageCriteriaEvent::class => 'onProductPageCriteria',
             StorefrontRenderEvent::class => 'onStorefrontRender',
         ];
+    }
+
+    public function onProductPageCriteria(ProductPageCriteriaEvent $event): void
+    {
+        if (!$this->config->isEnabled($event->getSalesChannelContext()->getSalesChannelId())) {
+            return;
+        }
+
+        $event->getCriteria()->addAssociation('categories');
     }
 
     public function onStorefrontRender(StorefrontRenderEvent $event): void
@@ -90,6 +107,7 @@ final class StorefrontSubscriber implements EventSubscriberInterface
             'apiUrl'          => $sdkBaseUrl,
             'pageType'        => $pageType,
             'sdkUrl'          => $sdkBaseUrl . '/axitrack.js',
+            'storefrontContextUrl' => $this->urlGenerator->generate('frontend.axitrace.storefront-context'),
             'consent'         => [
                 'mode'   => $consentMode->value,
                 'cookie' => $consentCookie,
@@ -124,7 +142,7 @@ final class StorefrontSubscriber implements EventSubscriberInterface
     private function injectProductContext(StorefrontRenderEvent $event, string $salesChannelId): void
     {
         try {
-            $page = $event->getPage();
+            $page = $event->getParameters()['page'] ?? null;
 
             if (!($page instanceof ProductPage)) {
                 return;
@@ -135,17 +153,29 @@ final class StorefrontSubscriber implements EventSubscriberInterface
                 return;
             }
 
-            $event->setParameter('axitraceProductContext', [
+            $context = [
                 'sku'       => (string) ($product->getProductNumber() ?? ''),
                 'productId' => (string) $product->getId(),
                 'name'      => (string) $product->getTranslation('name'),
                 'price'     => (float) ($product->getCalculatedPrice()?->getUnitPrice() ?? 0),
                 'currency'  => $event->getSalesChannelContext()->getCurrency()->getIsoCode(),
-            ]);
-        } catch (\Throwable) {
-            // Product context is non-critical; swallowing here is intentional — the storefront
-            // render must not be interrupted by an SDK enrichment failure.
-            // The axitraceConfig block is already set; the SDK loader will still fire.
+                'brand'     => (string) ($product->getManufacturer()?->getTranslation('name') ?? $product->getManufacturer()?->getName() ?? ''),
+                'category'  => (string) ($product->getCategories()?->first()?->getTranslation('name') ?? $product->getCategories()?->first()?->getName() ?? ''),
+                'variant'   => $this->formatVariation($product->getVariation()),
+            ];
+            $pinterestId = $this->pinterestIdResolver->resolve(
+                $this->config->getPinterestCatalogIdMode($salesChannelId),
+                (string) $product->getProductNumber(),
+                (string) $product->getId(),
+            );
+            if ($pinterestId !== null) {
+                $context['pinterest_id'] = $pinterestId;
+            }
+            $event->setParameter('axitraceProductContext', $context);
+        } catch (\Throwable $error) {
+            $message = $error::class . ': ' . $error->getMessage();
+            $this->logger->critical('AxiTrace: product context initialization failed: ' . $message);
+            $event->setParameter('axitraceProductContextError', $message);
         }
     }
 
@@ -162,7 +192,7 @@ final class StorefrontSubscriber implements EventSubscriberInterface
     private function injectCheckoutContext(StorefrontRenderEvent $event, string $currency): void
     {
         try {
-            $page = $event->getPage();
+            $page = $event->getParameters()['page'] ?? null;
 
             if (!($page instanceof CheckoutConfirmPage)) {
                 return;
@@ -181,19 +211,58 @@ final class StorefrontSubscriber implements EventSubscriberInterface
                     continue;
                 }
 
-                $items[] = [
+                $payload = $lineItem->getPayload();
+                $productNumber = (string) ($payload['productNumber'] ?? '');
+                $item = [
                     'id'       => $referencedId,
+                    'item_id'  => $productNumber !== '' ? $productNumber : strtolower($referencedId),
+                    'productId' => strtolower($referencedId),
+                    'sku'      => $productNumber,
+                    'name'     => (string) $lineItem->getLabel(),
+                    'price'    => (float) $lineItem->getPrice()?->getUnitPrice(),
                     'quantity' => $lineItem->getQuantity(),
                 ];
+                $pinterestId = $this->pinterestIdResolver->resolve(
+                    $this->config->getPinterestCatalogIdMode($event->getSalesChannelContext()->getSalesChannelId()),
+                    $productNumber,
+                    $referencedId,
+                );
+                if ($pinterestId !== null) {
+                    $item['pinterest_id'] = $pinterestId;
+                }
+                $items[] = $item;
             }
 
             $event->setParameter('axitraceCheckoutContext', [
                 'value'    => round($cart->getPrice()->getTotalPrice(), 2),
                 'currency' => $currency,
                 'items'    => $items,
+                'quantity' => array_sum(array_column($items, 'quantity')),
             ]);
-        } catch (\Throwable) {
-            // Non-critical enrichment; never interrupt the checkout render.
+        } catch (\Throwable $error) {
+            $message = $error::class . ': ' . $error->getMessage();
+            $this->logger->critical('AxiTrace: checkout context initialization failed: ' . $message);
+            $event->setParameter('axitraceCheckoutContextError', $message);
         }
+    }
+
+    /** @param array<int|string, mixed>|null $variation */
+    private function formatVariation(?array $variation): string
+    {
+        if ($variation === null) {
+            return '';
+        }
+
+        $parts = [];
+        foreach ($variation as $value) {
+            if (is_array($value)) {
+                $value = $value['option'] ?? $value['name'] ?? null;
+            }
+            if (is_scalar($value) && trim((string) $value) !== '') {
+                $parts[] = trim((string) $value);
+            }
+        }
+
+        return implode(' / ', $parts);
     }
 }

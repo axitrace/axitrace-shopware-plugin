@@ -88,8 +88,10 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
         $orderCriteria = new Criteria([$orderId]);
         $orderCriteria->addAssociation('currency');
         $orderCriteria->addAssociation('billingAddress.country');
+        $orderCriteria->addAssociation('billingAddress.countryState');
         $orderCriteria->addAssociation('orderCustomer');
-        $orderCriteria->addAssociation('lineItems');
+        $orderCriteria->addAssociation('lineItems.product.manufacturer');
+        $orderCriteria->addAssociation('lineItems.product.categories');
         $orderCriteria->addAssociation('transactions');
 
         /** @var OrderEntity|null $order */
@@ -142,6 +144,7 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
             $eventId,
             $publicKey,
             $this->config->getConversionValueBasis($salesChannelId),
+            $this->config->getPinterestCatalogIdMode($salesChannelId),
         );
 
         try {

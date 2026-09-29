@@ -148,6 +148,10 @@ final class OrderPlacedSubscriberConsentTest extends TestCase
             self::VALID_FBP,
             $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_FBP] ?? null,
         );
+        self::assertSame(
+            'https://shop.example/checkout/finish',
+            $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_SOURCE_URL] ?? null,
+        );
     }
 
     /**

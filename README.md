@@ -87,8 +87,12 @@ bin/console cache:clear
    shipping and/or VAT (e.g. *Product revenue only - excl. VAT and shipping*
    for margin-based bidding). The setting applies to new orders only; the
    gross VAT and shipping amounts are always sent alongside for reference.
-7. **Save** the configuration.
-8. **Place a test order** in your storefront. Within 1-2 minutes the AxiTrace
+7. *(Optional)* Choose a **Pinterest catalog product ID** mode when your
+   Pinterest catalog uses Shopware product numbers. The default keeps the
+   existing identifiers. The lowercase option is useful for feeds that
+   normalize product numbers to lowercase. This affects Pinterest only.
+8. **Save** the configuration.
+9. **Place a test order** in your storefront. Within 1-2 minutes the AxiTrace
    dashboard should show the order on the events feed.
 
 ---
@@ -99,14 +103,15 @@ bin/console cache:clear
 |-------|---------|
 | `purchase` | Shopware `OrderStateMachineStateChangeEvent` fires when an order transitions to the `paid` state. Idempotent via the `axitrace_failed_event_log` unique constraint. |
 
-Additional storefront events (ViewContent, AddToCart, InitiateCheckout) are
-captured by the AxiTrace JavaScript SDK snippet, which you can add via a
-Shopware Shopping Experience (CMS) block or through your theme's custom HTML.
-See [axitrace.com/docs/integrations/shopware](https://axitrace.com/docs/integrations/shopware)
-for the snippet.
+The plugin loads the AxiTrace browser SDK and captures ViewContent, AddToCart,
+InitiateCheckout and AddPaymentInfo. Product and cart data come from Shopware's
+server-authoritative storefront context. Purchase remains server-only and is
+sent when the order transaction becomes paid.
 
 PII (email, phone) is forwarded in **plain text** server-to-server; AxiTrace
 hashes it internally per each platform's requirements before transmission.
+Browser checkout identity is returned only after an explicit consent grant and
+is never embedded in cacheable storefront HTML.
 
 ---
 
@@ -151,6 +156,15 @@ after saving**.
 ```js
 window.axitraceConsent && window.axitraceConsent.grant();
 ```
+
+With both workspace consent checks and plugin gating off, customer enrichment
+does not require a consent cookie (plugin 0.4.2 and SDK 0.21.2).
+
+When consent checks are enabled, the JavaScript call alone allows tracking, but it does not expose
+checkout customer fields. Email and address match fields are returned only when
+the configured consent cookie is also present and valid. CMP integrations that
+need those fields must set that cookie as part of their accept action before
+calling `grant()`.
 
 In a *Wait for consent* mode the SDK is not loaded at all until a grant signal
 arrives - no cookie, no localStorage entry, no network request.
@@ -215,7 +229,7 @@ forwarding policy, and how to verify a gate actually works are covered in
 | No events appear in the AxiTrace dashboard after a test order | Plugin not enabled, or wrong public key | Check *Extensions → My extensions → AxiTrace → Configure*; verify the key starts with `pk_live_` or `pk_test_` |
 | Orders appear but Facebook/TikTok show no conversions | Platform connection not configured in AxiTrace | Log in to [axitrace.com/dashboard](https://axitrace.com/dashboard) and verify your Facebook/TikTok destination is active |
 | `Connection refused` or `cURL error` in `var/log/axitrace.log` | Outbound HTTPS blocked from your host | Allowlist `api.axitrace.com:443` on your firewall / WAF |
-| Events duplicated in the ad platform | Client-side pixel AND server events both firing without deduplication | Ensure the AxiTrace JS snippet is present - it sets the `event_id` cookie that the server side reads for deduplication |
+| Upper-funnel events duplicated in the ad platform | The browser pixel and AxiTrace server forwarding use different integrations | Let the AxiTrace SDK coordinate both legs; it sends the same per-event ID to the browser tag and the ingestion API. Shopware Purchase is server-only and fires on the paid transition. |
 | Plugin not visible after install | Shopware plugin cache not cleared | `bin/console plugin:refresh && bin/console cache:clear` |
 
 ---

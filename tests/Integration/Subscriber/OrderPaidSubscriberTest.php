@@ -171,6 +171,14 @@ final class OrderPaidSubscriberTest extends TestCase
         $this->givenConfig('off'); // historical default mode
         $this->givenOrder();
 
+        $this->orderRepository->expects(self::once())->method('search')->with(
+            self::callback(static function (Criteria $criteria): bool {
+                $billing = $criteria->getAssociation('billingAddress');
+
+                return $billing->hasAssociation('country') && $billing->hasAssociation('countryState');
+            }),
+            self::isInstanceOf(Context::class),
+        );
         $this->failedEventRepository->expects(self::never())->method('create');
 
         $this->subscriber->onOrderPaid($this->paidEvent());

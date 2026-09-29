@@ -29,6 +29,9 @@ rsync -a \
     --exclude='composer.lock' \
     --exclude='tests/' \
     --exclude='.git/' \
+    --exclude='.git' \
+    --exclude='.phpunit.result.cache' \
+    --exclude='.phpunit.cache/' \
     --exclude='.github/' \
     --exclude='scripts/' \
     --exclude='phpunit.xml' \

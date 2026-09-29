@@ -4,11 +4,38 @@
     {{ parent() }}
     {% if axitraceConfig is defined and axitraceConfig.publicKey is not empty %}
         <script type="application/json" id="axitrace-config">
-            {{ axitraceConfig | json_encode(960) | raw }}
+            {{ axitraceConfig | json_encode(15) | raw }}
         </script>
+        {% if axitraceProductContext is defined and axitraceProductContext is not null %}
+            <script type="application/json" id="axitrace-product-context">
+                {{ axitraceProductContext | json_encode(15) | raw }}
+            </script>
+        {% endif %}
+        {% if axitraceProductContextError is defined %}
+            <script>
+                document.addEventListener('DOMContentLoaded', function () {
+                    var error = document.createElement('div');
+                    error.setAttribute('role', 'alert');
+                    error.className = 'alert alert-danger';
+                    error.textContent = 'AxiTrace product context could not be loaded. Please contact the store administrator.';
+                    document.body.insertBefore(error, document.body.firstChild);
+                });
+            </script>
+        {% endif %}
         {% if axitraceCheckoutContext is defined and axitraceCheckoutContext is not null %}
             <script type="application/json" id="axitrace-checkout-context">
-                {{ axitraceCheckoutContext | json_encode(960) | raw }}
+                {{ axitraceCheckoutContext | json_encode(15) | raw }}
+            </script>
+        {% endif %}
+        {% if axitraceCheckoutContextError is defined %}
+            <script>
+                document.addEventListener('DOMContentLoaded', function () {
+                    var error = document.createElement('div');
+                    error.setAttribute('role', 'alert');
+                    error.className = 'alert alert-danger';
+                    error.textContent = 'AxiTrace checkout context could not be loaded. Please contact the store administrator.';
+                    document.body.insertBefore(error, document.body.firstChild);
+                });
             </script>
         {% endif %}
         {% if axitraceConfig.consent.mode == 'off' %}

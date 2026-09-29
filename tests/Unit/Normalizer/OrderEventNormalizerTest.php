@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AxitraceShopware6\Tests\Unit\Normalizer;
 
+use AxitraceShopware6\Config\PinterestCatalogIdMode;
 use AxitraceShopware6\Normalizer\ConversionValueBasis;
 use AxitraceShopware6\Normalizer\OrderEventNormalizer;
 use PHPUnit\Framework\TestCase;
@@ -193,6 +194,17 @@ final class OrderEventNormalizerTest extends TestCase
             public function __construct()
             {
                 $this->setId('item-1');
+                $product = new \Shopware\Core\Content\Product\ProductEntity();
+                $product->setId('0191d3d2c1ce7a2ba9d1f2f2c8b1a011');
+                $manufacturer = new \Shopware\Core\Content\Product\Aggregate\ProductManufacturer\ProductManufacturerEntity();
+                $manufacturer->setId('0191d3d2c1ce7a2ba9d1f2f2c8b1a012');
+                $manufacturer->setName('Acme');
+                $product->setManufacturer($manufacturer);
+                $category = new \Shopware\Core\Content\Category\CategoryEntity();
+                $category->setId('0191d3d2c1ce7a2ba9d1f2f2c8b1a013');
+                $category->setName('Cameras');
+                $product->setCategories(new \Shopware\Core\Content\Category\CategoryCollection([$category]));
+                $this->setProduct($product);
             }
 
             public function getType(): string
@@ -410,6 +422,8 @@ final class OrderEventNormalizerTest extends TestCase
         self::assertSame(2.0, $product['quantity']);
         self::assertSame(49.99, $product['price']);
         self::assertSame('EUR', $product['currency']);
+        self::assertSame('Acme', $product['brand']);
+        self::assertSame('Cameras', $product['category']);
 
         self::assertArrayHasKey('revenue', $data);
         self::assertArrayHasKey('value', $data);
@@ -438,6 +452,7 @@ final class OrderEventNormalizerTest extends TestCase
             \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_CLIENT_UA  => 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)',
             \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_GA         => 'GA1.1.111222333.1700000001',
             \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_GA_SESSION => 'GS2.1.s1700000002$o1$g1',
+            \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_SOURCE_URL => 'https://shop.example/checkout/confirm',
         ]);
 
         $payload = $this->normalizer->normalize($order, 'evt-ctx-1', 'pk_test');
@@ -450,6 +465,7 @@ final class OrderEventNormalizerTest extends TestCase
         self::assertSame('GA1.1.111222333.1700000001', $data['_ga']);
         self::assertSame('GS2.1.s1700000002$o1$g1', $data['ga_session_id']);
         self::assertSame('10042', $data['orderNumber']);
+        self::assertSame('https://shop.example/checkout/confirm', $data['url']);
     }
 
     /**
@@ -850,6 +866,15 @@ final class OrderEventNormalizerTest extends TestCase
 
         self::assertCount(1, $products, 'Promotion line item must be excluded; only 1 product must remain.');
         self::assertSame('prod-abc-123', $products[0]['productId']);
+
+        $pinterestPayload = $this->normalizer->normalize(
+            $order,
+            'evt-5-pinterest',
+            'pk_test',
+            ConversionValueBasis::GrossTotal,
+            PinterestCatalogIdMode::ProductNumberLowercase,
+        );
+        self::assertSame('sku-001', $pinterestPayload['data']['products'][0]['pinterest_id']);
     }
 
     /**

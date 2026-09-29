@@ -31,6 +31,9 @@
         <!-- StorefrontSubscriber: injects AxiTrace SDK config into every storefront page -->
         <service id="AxitraceShopware6\Subscriber\StorefrontSubscriber">
             <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
+            <argument type="service" id="AxitraceShopware6\Normalizer\PinterestCatalogIdResolver"/>
+            <argument type="service" id="router"/>
+            <argument type="service" id="logger"/>
             <tag name="kernel.event_subscriber"/>
         </service>
 
@@ -63,6 +66,21 @@
 
         <!-- OrderEventNormalizer: pure mapper, no deps -->
         <service id="AxitraceShopware6\Normalizer\OrderEventNormalizer"/>
+        <service id="AxitraceShopware6\Normalizer\PinterestCatalogIdResolver"/>
+
+        <service id="AxitraceShopware6\Storefront\StorefrontContextProvider">
+            <argument type="service" id="Shopware\Core\Checkout\Cart\SalesChannel\CartService"/>
+            <argument type="service" id="sales_channel.product.repository"/>
+            <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
+            <argument type="service" id="AxitraceShopware6\Normalizer\PinterestCatalogIdResolver"/>
+        </service>
+
+        <service id="AxitraceShopware6\Storefront\StorefrontContextController" public="true">
+            <argument type="service" id="AxitraceShopware6\Storefront\StorefrontContextProvider"/>
+            <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
+            <argument type="service" id="AxitraceShopware6\Consent\ConsentGate"/>
+            <tag name="controller.service_arguments"/>
+        </service>
 
         <!-- OrderPaidSubscriber: server-side purchase event -->
         <service id="AxitraceShopware6\Subscriber\OrderPaidSubscriber">
