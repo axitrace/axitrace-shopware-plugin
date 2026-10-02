@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace AxitraceShopware6\Tests\Unit\ScheduledTask;
 
+use AxitraceShopware6\Config\AxitraceCrypto;
+use AxitraceShopware6\Config\PluginConfig;
 use AxitraceShopware6\Entity\AxitraceFailedEventCollection;
 use AxitraceShopware6\Entity\AxitraceFailedEventEntity;
 use AxitraceShopware6\Exception\IngestionUnreachableException;
 use AxitraceShopware6\HttpClient\IngestionApiClient;
 use AxitraceShopware6\ScheduledTask\AxitraceRetryFailedEventsHandler;
+use AxitraceShopware6\ScheduledTask\FailedEventQueue;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
@@ -18,6 +21,7 @@ use Shopware\Core\Framework\DataAbstractionLayer\Search\AggregationResult\Aggreg
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\EntitySearchResult;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\RangeFilter;
+use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Symfony\Component\HttpClient\Exception\TransportException;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
@@ -184,6 +188,138 @@ final class AxitraceRetryFailedEventsHandlerTest extends TestCase
         self::assertStringContainsString('attempts', $filtersJson);
         self::assertStringContainsString('lt', $filtersJson);
         self::assertStringContainsString('3', $filtersJson);
+    }
+
+    // -------------------------------------------------------------------------
+    // 0.5.0: envelope, secret key re-read from config, refund endpoint
+    // -------------------------------------------------------------------------
+
+    private const SECRET = 'sk_' . 'live_0123456789abcdef0123456789abcdef';
+
+    /**
+     * @return list<array{url: string, headers: array<string, list<string>>, body: array<string, mixed>}>
+     */
+    private function runWithConfig(string $storedPayload, ?string $secretKey, bool $rejectKey = false): array
+    {
+        $requests = [];
+        $http = new MockHttpClient(static function (string $method, string $url, array $options) use (&$requests, $rejectKey): MockResponse {
+            $requests[] = [
+                'url'     => $url,
+                'headers' => $options['normalized_headers'] ?? [],
+                'body'    => json_decode((string) ($options['body'] ?? '{}'), true),
+            ];
+            $authenticated = isset($options['normalized_headers']['authorization']);
+
+            return new MockResponse('', ['http_code' => $rejectKey && $authenticated ? 401 : 202]);
+        });
+
+        $systemConfig = $this->createMock(SystemConfigService::class);
+        $systemConfig->method('get')->willReturnCallback(
+            static fn (string $key, ?string $salesChannelId = null): mixed => $key === 'AxitraceShopware6.config.secretKey' && $salesChannelId === 'sc-1' ? $secretKey : null,
+        );
+
+        $handler = new AxitraceRetryFailedEventsHandler(
+            $this->failedEventRepository,
+            new IngestionApiClient($http, $this->logger, null),
+            $this->logger,
+            new PluginConfig($systemConfig, new AxitraceCrypto('test-app-secret-fixture'), $this->logger),
+        );
+
+        $this->mockRepositorySearch($this->buildEntity('event-env', $storedPayload, 0));
+        $handler->run();
+
+        return $requests;
+    }
+
+    public function testQueuedRefundIsResentToTheRefundEndpointWithTheCurrentSecretKey(): void
+    {
+        $this->failedEventRepository->expects(self::once())->method('delete');
+
+        $stored = json_encode([
+            'orderId' => 'o-1',
+            'refundId' => 'tx:t-1:refunded',
+            FailedEventQueue::ENVELOPE_KEY => ['endpoint' => 'refund', 'salesChannelId' => 'sc-1'],
+        ], JSON_THROW_ON_ERROR);
+
+        $requests = $this->runWithConfig($stored, self::SECRET);
+
+        self::assertCount(1, $requests);
+        self::assertSame('https://stat.axitrace.com/v1/refund', $requests[0]['url']);
+        self::assertSame(['Authorization: Basic ' . base64_encode(self::SECRET . ':')], $requests[0]['headers']['authorization'] ?? null);
+        self::assertSame(['orderId' => 'o-1', 'refundId' => 'tx:t-1:refunded'], $requests[0]['body'], 'the envelope never reaches the API');
+    }
+
+    public function testQueuedPurchaseKeepsItsCostsWhenTheSecretKeyIsStillSet(): void
+    {
+        $stored = json_encode([
+            'event' => 'transaction.charge',
+            'data' => ['products' => [['sku' => 'A', 'unitCost' => ['amount' => 5.25, 'currency' => 'EUR']]]],
+            FailedEventQueue::ENVELOPE_KEY => ['endpoint' => 'pixel', 'salesChannelId' => 'sc-1'],
+        ], JSON_THROW_ON_ERROR);
+
+        $requests = $this->runWithConfig($stored, self::SECRET);
+
+        self::assertSame('https://stat.axitrace.com/shopware/pixel', $requests[0]['url']);
+        self::assertArrayHasKey('authorization', $requests[0]['headers']);
+        self::assertSame(['amount' => 5.25, 'currency' => 'EUR'], $requests[0]['body']['data']['products'][0]['unitCost']);
+    }
+
+    public function testQueuedPurchaseDropsItsCostsWhenTheSecretKeyWasRemoved(): void
+    {
+        $stored = json_encode([
+            'event' => 'transaction.charge',
+            'data' => ['products' => [['sku' => 'A', 'unitCost' => ['amount' => 5.25, 'currency' => 'EUR']]]],
+            FailedEventQueue::ENVELOPE_KEY => ['endpoint' => 'pixel', 'salesChannelId' => 'sc-1'],
+        ], JSON_THROW_ON_ERROR);
+
+        $requests = $this->runWithConfig($stored, null);
+
+        self::assertArrayNotHasKey('authorization', $requests[0]['headers']);
+        self::assertSame([['sku' => 'A']], $requests[0]['body']['data']['products']);
+    }
+
+    public function testQueuedRefundWithoutSecretKeyCountsAsAFailedAttempt(): void
+    {
+        $this->failedEventRepository->expects(self::never())->method('delete');
+        $this->failedEventRepository->expects(self::once())->method('update');
+
+        $stored = json_encode([
+            'refundId' => 'r-1',
+            FailedEventQueue::ENVELOPE_KEY => ['endpoint' => 'refund', 'salesChannelId' => 'sc-1'],
+        ], JSON_THROW_ON_ERROR);
+
+        self::assertSame([], $this->runWithConfig($stored, null));
+    }
+
+    public function testQueuedPurchaseWhoseKeyIsRejectedIsDeliveredOnceWithoutKeyAndCosts(): void
+    {
+        $this->failedEventRepository->expects(self::once())->method('delete');
+        $this->failedEventRepository->expects(self::never())->method('update');
+
+        $stored = json_encode([
+            'event' => 'transaction.charge',
+            'data' => ['products' => [['sku' => 'A', 'unitCost' => ['amount' => 5.25, 'currency' => 'EUR']]]],
+            FailedEventQueue::ENVELOPE_KEY => ['endpoint' => 'pixel', 'salesChannelId' => 'sc-1'],
+        ], JSON_THROW_ON_ERROR);
+
+        $requests = $this->runWithConfig($stored, self::SECRET, rejectKey: true);
+
+        self::assertCount(2, $requests, 'one rejected attempt with the key, one resend without it');
+        self::assertArrayNotHasKey('authorization', $requests[1]['headers']);
+        self::assertSame([['sku' => 'A']], $requests[1]['body']['data']['products']);
+    }
+
+    public function testQueuedRefundWhoseKeyIsRejectedIsDroppedNotRetried(): void
+    {
+        $this->failedEventRepository->expects(self::once())->method('delete');
+        $this->failedEventRepository->expects(self::never())->method('update');
+
+        $stored = json_encode([
+            'refundId' => 'r-1',
+            FailedEventQueue::ENVELOPE_KEY => ['endpoint' => 'refund', 'salesChannelId' => 'sc-1'],
+        ], JSON_THROW_ON_ERROR);
+
+        self::assertCount(1, $this->runWithConfig($stored, self::SECRET, rejectKey: true), 'a refund is never resent without the key');
     }
 
     // -------------------------------------------------------------------------

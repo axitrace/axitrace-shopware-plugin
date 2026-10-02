@@ -411,4 +411,43 @@ final class PluginConfigTest extends TestCase
             $this->pluginConfig->getConsentCookieName('channel-x'),
         );
     }
+
+    // -------------------------------------------------------------------------
+    // getSecretKey (0.5.0)
+    // -------------------------------------------------------------------------
+
+    private const VALID_SK = 'sk_' . 'live_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+
+    public function testGetSecretKeyIsEmptyWhenUnset(): void
+    {
+        $this->configService->method('get')->with('AxitraceShopware6.config.secretKey', 'channel-x')->willReturn(null);
+        $this->logger->expects(self::never())->method('critical');
+
+        self::assertSame('', $this->pluginConfig->getSecretKey('channel-x'));
+    }
+
+    public function testGetSecretKeyAcceptsPlaintextFromTheAdminForm(): void
+    {
+        $this->configService->method('get')->willReturn('  ' . self::VALID_SK . ' ');
+
+        self::assertSame(self::VALID_SK, $this->pluginConfig->getSecretKey('channel-x'));
+    }
+
+    public function testGetSecretKeyDecryptsAnEncryptedValue(): void
+    {
+        $this->configService->method('get')->willReturn($this->crypto->encrypt(self::VALID_SK));
+
+        self::assertSame(self::VALID_SK, $this->pluginConfig->getSecretKey('channel-x'));
+    }
+
+    public function testMalformedSecretKeyIsTreatedAsAbsentAndNeverLogged(): void
+    {
+        $this->configService->method('get')->willReturn('pk_live_abcdef1234567890abcdef1234567890');
+        $this->logger->expects(self::once())->method('critical')->with(
+            self::stringContains('secretKey failed format validation'),
+            self::callback(static fn (array $ctx): bool => !str_contains((string) json_encode($ctx), 'pk_live')),
+        );
+
+        self::assertSame('', $this->pluginConfig->getSecretKey('channel-x'));
+    }
 }

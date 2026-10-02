@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AxitraceShopware6\Tests\Unit\HttpClient;
 
 use AxitraceShopware6\Exception\IngestionUnreachableException;
+use AxitraceShopware6\Exception\SecretKeyRejectedException;
 use AxitraceShopware6\HttpClient\IngestionApiClient;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
@@ -262,5 +263,150 @@ final class IngestionApiClientTest extends TestCase
         // value, not the int/float distinction.
         self::assertSame(2.0, (float) $capturedTimeout);
         self::assertSame(2.0, (float) $capturedMaxDuration);
+    }
+
+    // -------------------------------------------------------------------------
+    // Secret key: Basic header and the refund endpoint (0.5.0)
+    // -------------------------------------------------------------------------
+
+    public function testSecretKeyIsSentAsBasicAuthorization(): void
+    {
+        $captured = [];
+        $mock = new MockHttpClient(static function (string $method, string $url, array $options) use (&$captured): MockResponse {
+            $captured = ['url' => $url, 'headers' => $options['normalized_headers'] ?? []];
+
+            return new MockResponse('', ['http_code' => 202]);
+        });
+
+        $this->makeClient($mock)->sendEvent(['event' => 'transaction.charge'], 'sk_live_abc123abc123abc123');
+
+        self::assertSame('https://stat.axitrace.com/shopware/pixel', $captured['url']);
+        self::assertSame(
+            ['Authorization: Basic ' . base64_encode('sk_live_abc123abc123abc123:')],
+            $captured['headers']['authorization'] ?? null,
+        );
+    }
+
+    public function testNoAuthorizationHeaderWithoutSecretKey(): void
+    {
+        $captured = [];
+        $mock = new MockHttpClient(static function (string $method, string $url, array $options) use (&$captured): MockResponse {
+            $captured = $options['normalized_headers'] ?? [];
+
+            return new MockResponse('', ['http_code' => 202]);
+        });
+
+        $this->makeClient($mock)->sendEvent(['event' => 'transaction.charge']);
+
+        self::assertArrayNotHasKey('authorization', $captured);
+    }
+
+    public function testRefundGoesToTheRefundEndpointWithTheSecretKey(): void
+    {
+        $captured = [];
+        $mock = new MockHttpClient(static function (string $method, string $url, array $options) use (&$captured): MockResponse {
+            $captured = ['method' => $method, 'url' => $url, 'headers' => $options['normalized_headers'] ?? [], 'body' => $options['body'] ?? ''];
+
+            return new MockResponse('', ['http_code' => 202]);
+        });
+
+        $this->makeClient($mock)->sendRefund(['orderId' => 'o-1', 'refundId' => 'r-1'], 'sk_live_abc123abc123abc123');
+
+        self::assertSame('POST', $captured['method']);
+        self::assertSame('https://stat.axitrace.com/v1/refund', $captured['url']);
+        self::assertSame(
+            ['Authorization: Basic ' . base64_encode('sk_live_abc123abc123abc123:')],
+            $captured['headers']['authorization'] ?? null,
+        );
+        self::assertSame(['orderId' => 'o-1', 'refundId' => 'r-1'], json_decode((string) $captured['body'], true));
+    }
+
+    public function testRefundWithoutSecretKeyIsRefusedBeforeAnyRequest(): void
+    {
+        $requests = 0;
+        $mock = new MockHttpClient(static function () use (&$requests): MockResponse {
+            $requests++;
+
+            return new MockResponse('', ['http_code' => 202]);
+        });
+
+        try {
+            $this->makeClient($mock)->sendRefund(['refundId' => 'r-1'], '');
+            self::fail('An empty secret key must be refused.');
+        } catch (\InvalidArgumentException) {
+        }
+
+        self::assertSame(0, $requests);
+    }
+
+    public function testRejectedSecretKeyOnARefundIsLoggedWithoutTheKeyAndNeverResent(): void
+    {
+        $this->logger->expects(self::once())->method('critical')->with(self::callback(
+            static fn (string $m): bool => str_contains($m, 'path=/v1/refund') && str_contains($m, 'rejected (HTTP 401)') && !str_contains($m, 'sk_live'),
+        ));
+
+        $requests = 0;
+        $mock = new MockHttpClient(static function () use (&$requests): MockResponse {
+            $requests++;
+
+            return new MockResponse('{"error_code":"unauthorized"}', ['http_code' => 401]);
+        });
+
+        try {
+            $this->makeClient($mock)->sendRefund(['refundId' => 'r-1'], 'sk_live_abc123abc123abc123');
+            self::fail('A rejected key must surface as SecretKeyRejectedException.');
+        } catch (SecretKeyRejectedException) {
+        }
+
+        self::assertSame(1, $requests);
+    }
+
+    public function testRejectedSecretKeyOnAPurchaseResendsItOnceWithoutKeyAndCosts(): void
+    {
+        $this->logger->expects(self::once())->method('critical')->with(self::callback(
+            static fn (string $m): bool => str_contains($m, 'path=/shopware/pixel') && str_contains($m, 'rejected (HTTP 401)') && !str_contains($m, 'sk_live'),
+        ));
+
+        $requests = [];
+        $mock = new MockHttpClient(static function (string $method, string $url, array $options) use (&$requests): MockResponse {
+            $requests[] = ['headers' => $options['normalized_headers'] ?? [], 'body' => json_decode((string) ($options['body'] ?? '{}'), true)];
+
+            return new MockResponse('', ['http_code' => count($requests) === 1 ? 401 : 202]);
+        });
+
+        $this->makeClient($mock)->sendEvent([
+            'event' => 'transaction.charge',
+            'data'  => ['products' => [['sku' => 'A', 'externalId' => 'shopware:p1', 'unitCost' => ['amount' => 5.0, 'currency' => 'EUR']]]],
+        ], 'sk_live_abc123abc123abc123');
+
+        self::assertCount(2, $requests);
+        self::assertArrayHasKey('authorization', $requests[0]['headers']);
+        self::assertArrayNotHasKey('authorization', $requests[1]['headers']);
+        self::assertSame([['sku' => 'A', 'externalId' => 'shopware:p1']], $requests[1]['body']['data']['products']);
+    }
+
+    public function testPurchaseWhoseKeylessResendFailsIsReportedUnreachable(): void
+    {
+        $requests = 0;
+        $mock = new MockHttpClient(static function () use (&$requests): MockResponse {
+            $requests++;
+
+            return new MockResponse('', ['http_code' => $requests === 1 ? 401 : 503]);
+        });
+
+        $this->expectException(IngestionUnreachableException::class);
+        try {
+            $this->makeClient($mock)->sendEvent(['event' => 'transaction.charge'], 'sk_live_abc123abc123abc123');
+        } finally {
+            self::assertSame(2, $requests, 'exactly one keyless resend, never a loop');
+        }
+    }
+
+    public function testA401WithoutAKeyIsAnOrdinaryFailure(): void
+    {
+        $mock = new MockHttpClient([new MockResponse('', ['http_code' => 401])]);
+
+        $this->expectException(IngestionUnreachableException::class);
+        $this->makeClient($mock)->sendEvent(['event' => 'transaction.charge']);
     }
 }

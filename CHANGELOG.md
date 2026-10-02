@@ -5,6 +5,22 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-10-02
+
+### Added
+- **Optional AxiTrace secret key** setting (per Sales Channel, password field). It is needed only for profit tracking and is used server-to-server only, never in the storefront. Requests made with it carry `Authorization: Basic base64(<secret key>:)`. Find it in AxiTrace under Settings, in the Container Information card, as Secret Key. Leave it empty and the plugin sends no Authorization header, no product costs and no refunds; the only difference from 0.4.2 is that purchases now also carry `externalId` on every order line and `taxesIncluded` on the order (see below).
+- **Cost of goods on purchases** (secret key only): each order line carries `unitCost`, the net purchase price from the product's purchase prices in the order currency. A variant without its own purchase price uses its parent's. A gross-only purchase price is converted to net with the line's tax rate when the price is linked. A line gets no cost when the purchase price is missing, zero, unlinked gross-only, or kept in another currency than the order; AxiTrace then applies the workspace's default margin.
+- **Product reference and tax status on purchases**: every order line carries `externalId` (`shopware:<product id>`), and the order carries `taxesIncluded` from its tax status (gross, net or tax-free). The existing `tax`, `shipping`, `revenue` and `value` keys and the *Conversion value* setting are unchanged.
+- **Refunds and cancellations** (secret key only) are reported to AxiTrace and reduce profit and POAS; ROAS and the purchase already sent to the ad platforms stay unchanged. Triggers: a payment transaction entering `refunded` or `refunded_partially`, a paid order entering `cancelled`, and a paid payment cancelled directly. Amounts come from the refunds a payment integration recorded in Shopware (with their lines), else the whole transaction amount for a full refund; a cancellation sends what has not already been refunded. A partial refund with no recorded amount is logged as a warning and not sent. Every refund has a deterministic id, so a repeated transition or a retry is counted once.
+
+- **A rejected secret key never costs a purchase.** When AxiTrace answers 401 to a purchase sent with the key (a wrong key, or the key of another workspace), the rejection is logged critical (the key itself is never logged) and the purchase is sent once more without the Authorization header and without `unitCost`. A refund whose key is rejected is not sent and is not queued for a retry, since refunds are only sent with a valid key.
+
+### Fixed
+- Refunds and cancellations now carry the identifier AxiTrace stores the purchase under: the order number, or the order id when the order has no number. Purchase and refund read it from one shared helper (`OrderReference`). Before this fix refunds carried the order id while purchases are stored under the order number, so no refund matched its purchase.
+
+### Changed
+- Undeliverable refunds join undeliverable purchases in the retry queue. The queue stores which endpoint and Sales Channel a request belongs to and reads the secret key again when it retries, so the key itself is never stored there. A queued purchase retried after the key was removed is sent without its cost fields.
+
 ## [0.4.2] - 2026-09-29
 
 ### Fixed

@@ -30,6 +30,9 @@ final class PluginConfig
     /** Regex that a valid AxiTrace public key must satisfy. */
     private const PUBLIC_KEY_REGEX = '/^pk_(live|test)_[a-f0-9]{32}$/';
 
+    /** Shape of an AxiTrace secret key (sk_live_ followed by the hex secret). */
+    private const SECRET_KEY_REGEX = '/^sk_(live|test)_[A-Za-z0-9]{16,128}$/';
+
     /**
      * RFC 6265 cookie-name-safe subset the consent cookie name must match —
      * it is echoed into the storefront JSON and used in a document.cookie
@@ -113,6 +116,47 @@ final class PluginConfig
         }
 
         return $resolved;
+    }
+
+    /**
+     * Returns the AxiTrace secret key for the given Sales Channel, or an empty
+     * string when it is not configured or not well-formed.
+     *
+     * The secret key is optional. It authenticates the server-side requests
+     * that carry margin data (per-line `unitCost` on purchases) and refunds;
+     * without it the plugin sends neither, exactly as before 0.5.0.
+     *
+     * Read like the public key: an encrypted value is decrypted, a plaintext
+     * value saved through the admin form is accepted when it has the expected
+     * shape. A malformed value is logged (without the value) and treated as
+     * absent, so a typo can never put a wrong key on the wire.
+     */
+    public function getSecretKey(?string $salesChannelId = null): string
+    {
+        $raw = trim((string) $this->systemConfigService->get(
+            self::CONFIG_DOMAIN . 'secretKey',
+            $salesChannelId,
+        ));
+
+        if ($raw === '') {
+            return '';
+        }
+
+        if (preg_match(self::SECRET_KEY_REGEX, $raw) === 1) {
+            return $raw;
+        }
+
+        $decrypted = $this->crypto->decrypt($raw);
+        if ($decrypted !== '' && preg_match(self::SECRET_KEY_REGEX, $decrypted) === 1) {
+            return $decrypted;
+        }
+
+        $this->logger->critical(
+            'AxiTrace: secretKey failed format validation, cost data and refunds are not sent',
+            ['sales_channel_id' => $salesChannelId],
+        );
+
+        return '';
     }
 
     /**

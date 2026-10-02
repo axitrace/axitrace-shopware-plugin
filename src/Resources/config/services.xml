@@ -53,11 +53,18 @@
             <tag name="shopware.scheduled.task"/>
         </service>
 
+        <!-- FailedEventQueue: writes undeliverable requests (purchases, refunds) to the retry log -->
+        <service id="AxitraceShopware6\ScheduledTask\FailedEventQueue">
+            <argument type="service" id="axitrace_failed_event_log.repository"/>
+            <argument type="service" id="logger"/>
+        </service>
+
         <!-- Scheduled task handler (AsMessageHandler attribute wires the message type) -->
         <service id="AxitraceShopware6\ScheduledTask\AxitraceRetryFailedEventsHandler">
             <argument type="service" id="axitrace_failed_event_log.repository"/>
             <argument type="service" id="AxitraceShopware6\HttpClient\IngestionApiClient"/>
             <argument type="service" id="logger"/>
+            <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
             <tag name="messenger.message_handler"/>
         </service>
 
@@ -67,6 +74,7 @@
         <!-- OrderEventNormalizer: pure mapper, no deps -->
         <service id="AxitraceShopware6\Normalizer\OrderEventNormalizer"/>
         <service id="AxitraceShopware6\Normalizer\PinterestCatalogIdResolver"/>
+        <service id="AxitraceShopware6\Normalizer\RefundEventNormalizer"/>
 
         <service id="AxitraceShopware6\Storefront\StorefrontContextProvider">
             <argument type="service" id="Shopware\Core\Checkout\Cart\SalesChannel\CartService"/>
@@ -90,7 +98,19 @@
             <argument type="service" id="AxitraceShopware6\Normalizer\OrderEventNormalizer"/>
             <argument type="service" id="AxitraceShopware6\EventId\UuidV5Generator"/>
             <argument type="service" id="order.repository"/>
-            <argument type="service" id="axitrace_failed_event_log.repository"/>
+            <argument type="service" id="AxitraceShopware6\ScheduledTask\FailedEventQueue"/>
+            <argument type="service" id="logger"/>
+            <tag name="kernel.event_subscriber"/>
+        </service>
+
+        <!-- OrderRefundSubscriber: refunds and cancellations to /v1/refund (secret key only) -->
+        <service id="AxitraceShopware6\Subscriber\OrderRefundSubscriber">
+            <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
+            <argument type="service" id="AxitraceShopware6\Consent\ConsentGate"/>
+            <argument type="service" id="AxitraceShopware6\HttpClient\IngestionApiClient"/>
+            <argument type="service" id="AxitraceShopware6\Normalizer\RefundEventNormalizer"/>
+            <argument type="service" id="order.repository"/>
+            <argument type="service" id="AxitraceShopware6\ScheduledTask\FailedEventQueue"/>
             <argument type="service" id="logger"/>
             <tag name="kernel.event_subscriber"/>
         </service>

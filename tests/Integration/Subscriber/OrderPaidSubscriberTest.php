@@ -11,6 +11,7 @@ use AxitraceShopware6\Normalizer\ConversionValueBasis;
 use AxitraceShopware6\EventId\UuidV5Generator;
 use AxitraceShopware6\HttpClient\IngestionApiClient;
 use AxitraceShopware6\Normalizer\OrderEventNormalizer;
+use AxitraceShopware6\ScheduledTask\FailedEventQueue;
 use AxitraceShopware6\Subscriber\OrderPlacedSubscriber;
 use AxitraceShopware6\Subscriber\OrderPaidSubscriber;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -53,6 +54,9 @@ final class OrderPaidSubscriberTest extends TestCase
     /** Number of HTTP requests the mocked transport actually served. */
     private int $requestCount = 0;
 
+    /** @var array{headers: array<string, list<string>>, body: mixed} Last request the transport served. */
+    public array $lastRequest = ['headers' => [], 'body' => null];
+
     /** Every SystemConfigService::set() call, keyed+valued, for assertions. */
     private array $configSets = [];
 
@@ -75,15 +79,16 @@ final class OrderPaidSubscriberTest extends TestCase
         );
     }
 
-    private function givenConfig(string $consentMode, bool $publicKeySet = true): void
+    private function givenConfig(string $consentMode, bool $publicKeySet = true, ?string $secretKey = null): void
     {
         $this->configService
             ->method('get')
             ->willReturnCallback(
-                static function (string $key) use ($consentMode, $publicKeySet): mixed {
+                static function (string $key) use ($consentMode, $publicKeySet, $secretKey): mixed {
                     return match ($key) {
                         'AxitraceShopware6.config.enabled'    => true,
                         'AxitraceShopware6.config.publicKey'  => $publicKeySet ? self::VALID_PK : null,
+                        'AxitraceShopware6.config.secretKey'  => $secretKey,
                         'AxitraceShopware6.config.consentMode' => $consentMode,
                         default                               => null,
                     };
@@ -108,6 +113,10 @@ final class OrderPaidSubscriberTest extends TestCase
         $self = $this;
         $http = new MockHttpClient(static function (string $method, string $url, array $options) use ($self, $transportThrows): MockResponse {
             $self->requestCount++;
+            $self->lastRequest = [
+                'headers' => $options['normalized_headers'] ?? [],
+                'body'    => json_decode((string) ($options['body'] ?? '{}'), true),
+            ];
 
             if ($transportThrows) {
                 throw new \Symfony\Component\HttpClient\Exception\TransportException('connection refused');
@@ -125,7 +134,7 @@ final class OrderPaidSubscriberTest extends TestCase
             new OrderEventNormalizer(),
             new UuidV5Generator(),
             $this->orderRepository,
-            $this->failedEventRepository,
+            new FailedEventQueue($this->failedEventRepository, $this->logger),
             $this->logger,
         );
     }
@@ -185,6 +194,48 @@ final class OrderPaidSubscriberTest extends TestCase
 
         self::assertSame(1, $this->requestCount, 'Exactly one ingestion request must be sent');
         self::assertSame(0, $this->configSets['AxitraceShopware6.runtime.recent_failure_count'] ?? null, 'Failure counters must be cleared after success');
+    }
+
+    // -------------------------------------------------------------------------
+    // Secret key (0.5.0): Basic header, product parent loaded for inherited costs
+    // -------------------------------------------------------------------------
+
+    public function testSecretKeyIsSentAsBasicHeaderAndParentProductsAreLoaded(): void
+    {
+        if (!$this->shopwareTypesAvailable()) {
+            $this->markTestSkipped('Shopware state machine types not installed.');
+        }
+
+        $secretKey = 'sk_' . 'live_0123456789abcdef0123456789abcdef';
+        $this->makeSubscriber();
+        $this->givenConfig('off', secretKey: $secretKey);
+        $this->givenOrder();
+
+        $this->orderRepository->expects(self::once())->method('search')->with(
+            self::callback(static fn (Criteria $criteria): bool => $criteria->getAssociation('lineItems')->getAssociation('product')->hasAssociation('parent')),
+            self::isInstanceOf(Context::class),
+        );
+
+        $this->subscriber->onOrderPaid($this->paidEvent());
+
+        self::assertSame(1, $this->requestCount);
+        self::assertSame(['Authorization: Basic ' . base64_encode($secretKey . ':')], $this->lastRequest['headers']['authorization'] ?? null);
+    }
+
+    public function testWithoutSecretKeyThePurchaseCarriesNoAuthorizationHeader(): void
+    {
+        if (!$this->shopwareTypesAvailable()) {
+            $this->markTestSkipped('Shopware state machine types not installed.');
+        }
+
+        $this->makeSubscriber();
+        $this->givenConfig('off');
+        $this->givenOrder();
+
+        $this->subscriber->onOrderPaid($this->paidEvent());
+
+        self::assertSame(1, $this->requestCount);
+        self::assertArrayNotHasKey('authorization', $this->lastRequest['headers']);
     }
 
     // -------------------------------------------------------------------------

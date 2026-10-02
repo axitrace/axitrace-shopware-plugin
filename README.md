@@ -91,8 +91,19 @@ bin/console cache:clear
    Pinterest catalog uses Shopware product numbers. The default keeps the
    existing identifiers. The lowercase option is useful for feeds that
    normalize product numbers to lowercase. This affects Pinterest only.
-8. **Save** the configuration.
-9. **Place a test order** in your storefront. Within 1-2 minutes the AxiTrace
+8. *(Optional, for profit tracking)* Paste your workspace **secret key**
+   (`sk_live_...`) into the *AxiTrace secret key* field. In AxiTrace it is
+   under **Settings**, in the **Container Information** card, as **Secret Key**.
+   With it the plugin
+   sends each order line's net purchase price (the product's *purchase price*
+   in the order currency; a variant without one uses its parent's) and reports
+   refunds and cancellations, so AxiTrace can show profit and POAS. The key is
+   used server-to-server only and is never placed in the storefront. If
+   AxiTrace rejects the key, purchases are still sent, without costs, and the
+   rejection is logged critical. Leave it empty and the plugin sends neither
+   costs nor refunds.
+9. **Save** the configuration.
+10. **Place a test order** in your storefront. Within 1-2 minutes the AxiTrace
    dashboard should show the order on the events feed.
 
 ---
@@ -102,6 +113,8 @@ bin/console cache:clear
 | Event | Trigger |
 |-------|---------|
 | `purchase` | Shopware `OrderStateMachineStateChangeEvent` fires when an order transitions to the `paid` state. Idempotent via the `axitrace_failed_event_log` unique constraint. |
+| refund | Secret key only. A payment transaction enters `refunded` or `refunded_partially`. Amounts come from the refunds a payment integration recorded in Shopware, or the whole transaction amount for a full refund. A partial refund with no recorded amount is logged and not sent. |
+| cancellation | Secret key only. A paid order enters `cancelled`, or a paid payment is cancelled. Sends what has not already been refunded. Reduces profit and POAS; ROAS and the purchase already sent to the ad platforms stay unchanged. |
 
 The plugin loads the AxiTrace browser SDK and captures ViewContent, AddToCart,
 InitiateCheckout and AddPaymentInfo. Product and cart data come from Shopware's

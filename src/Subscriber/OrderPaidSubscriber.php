@@ -10,13 +10,12 @@ use AxitraceShopware6\EventId\UuidV5Generator;
 use AxitraceShopware6\Exception\IngestionUnreachableException;
 use AxitraceShopware6\HttpClient\IngestionApiClient;
 use AxitraceShopware6\Normalizer\OrderEventNormalizer;
+use AxitraceShopware6\ScheduledTask\FailedEventQueue;
 use Psr\Log\LoggerInterface;
 use Shopware\Core\Checkout\Order\Event\OrderStateMachineStateChangeEvent;
 use Shopware\Core\Checkout\Order\OrderEntity;
-use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
-use Shopware\Core\Framework\Uuid\Uuid;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 
 /**
@@ -49,7 +48,7 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
         private readonly OrderEventNormalizer $normalizer,
         private readonly UuidV5Generator $uuidGenerator,
         private readonly EntityRepository $orderRepository,
-        private readonly EntityRepository $failedEventRepository,
+        private readonly FailedEventQueue $failedEventQueue,
         private readonly LoggerInterface $logger,
     ) {
     }
@@ -92,6 +91,8 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
         $orderCriteria->addAssociation('orderCustomer');
         $orderCriteria->addAssociation('lineItems.product.manufacturer');
         $orderCriteria->addAssociation('lineItems.product.categories');
+        // Purchase prices are inherited from the parent product when a variant has none.
+        $orderCriteria->addAssociation('lineItems.product.parent');
         $orderCriteria->addAssociation('transactions');
 
         /** @var OrderEntity|null $order */
@@ -138,6 +139,10 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
             return;
         }
 
+        // Cost data (per-line purchase price) travels only with the secret key:
+        // the server keeps it only on a secret-key authenticated request.
+        $secretKey = $this->config->getSecretKey($salesChannelId);
+
         $eventId = $this->uuidGenerator->forOrder($orderId, $transactionId);
         $payload = $this->normalizer->normalize(
             $order,
@@ -145,13 +150,14 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
             $publicKey,
             $this->config->getConversionValueBasis($salesChannelId),
             $this->config->getPinterestCatalogIdMode($salesChannelId),
+            $secretKey !== '',
         );
 
         try {
-            $this->ingestionClient->sendEvent($payload);
+            $this->ingestionClient->sendEvent($payload, $secretKey);
             $this->config->clearFailureCounters($salesChannelId);
         } catch (IngestionUnreachableException $e) {
-            $this->persistFailedEvent($eventId, $payload, $e, $context);
+            $this->failedEventQueue->enqueue($eventId, $payload, FailedEventQueue::ENDPOINT_PIXEL, $salesChannelId, $e, $context);
             $this->config->recordFailure($e->getMessage(), $salesChannelId);
         }
     }
@@ -194,31 +200,5 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
         }
 
         return $paidTransactionId;
-    }
-
-    private function persistFailedEvent(
-        string $eventId,
-        array $payload,
-        \Throwable $error,
-        Context $context,
-    ): void {
-        try {
-            $this->failedEventRepository->create([[
-                'id'            => Uuid::randomHex(),
-                'eventId'       => $eventId,
-                'payload'       => json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-                'attempts'      => 0,
-                'createdAt'     => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
-                'lastAttemptAt' => null,
-                'lastError'     => substr($error->getMessage(), 0, 500),
-            ]], $context);
-        } catch (\Throwable $persistError) {
-            $class = $persistError::class;
-            if (stripos($persistError->getMessage(), 'duplicate') === false
-                && stripos($persistError->getMessage(), 'unique') === false
-            ) {
-                $this->logger->critical('AxiTrace: failed to persist failed-event row for ' . $eventId . ': ' . $class);
-            }
-        }
     }
 }

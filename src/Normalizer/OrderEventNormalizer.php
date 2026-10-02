@@ -8,6 +8,7 @@ use AxitraceShopware6\Consent\ConsentGate;
 use AxitraceShopware6\Config\PinterestCatalogIdMode;
 use AxitraceShopware6\Subscriber\OrderPlacedSubscriber;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
+use Shopware\Core\Checkout\Cart\Price\Struct\CartPrice;
 use Shopware\Core\System\Country\Aggregate\CountryState\CountryStateEntity;
 use Shopware\Core\Checkout\Order\OrderEntity;
 
@@ -22,11 +23,13 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  *     billingCity, billingCountry, billingZip,
  *     data: {
  *       client: { email, phone },
- *       products: [{ productId, sku, name, quantity, price, currency }],
+ *       products: [{ productId, externalId, sku, name, quantity, price, currency,
+ *                    unitCost?: { amount, currency } }],
  *       revenue: { amount, currency },
  *       value: { amount, currency },
  *       orderNumber: string,          // human-readable order number (GA4 transaction_id)
  *       tax: float, shipping: float,  // gross VAT / shipping contained in the order
+ *       taxesIncluded?: bool,         // the order's tax status: true for gross, false for net / tax-free
  *       valueBasis: string,           // which amount `value`/`revenue` report (ConversionValueBasis)
  *       fbp?: string, fbc?: string,   // present only when captured at order placement
  *       _ga?: string, ga_session_id?: string  // GA cookies captured at order placement
@@ -56,23 +59,45 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  * setting ({@see ConversionValueBasis}); the default is the historical order total
  * including VAT and shipping. Products keep their unit prices as charged.
  *
+ * Cost data (0.5.0): `unitCost` is the NET purchase price per unit
+ * ({@see PurchaseCostResolver}) and is added ONLY when the caller passes
+ * `$includeCosts = true`, which OrderPaidSubscriber does only when the
+ * merchant configured the AxiTrace secret key - the server keeps cost fields
+ * only on secret-key authenticated requests. `externalId`
+ * (`shopware:<product id>`) is a plain product reference and is always sent.
+ *
  * This is a pure mapper - no I/O, no side effects.
  */
 final class OrderEventNormalizer
 {
-    private const PLUGIN_VERSION = '0.4.2';
+    private const PLUGIN_VERSION = '0.5.0';
+    private const EXTERNAL_ID_PREFIX = 'shopware:';
     private const SDK_VERSION    = 'shopware-1.0';
     private const SOURCE         = 'shopware';
 
     private readonly ConversionValueResolver $valueResolver;
     private readonly PinterestCatalogIdResolver $pinterestIdResolver;
+    private readonly PurchaseCostResolver $costResolver;
 
-    public function __construct(?ConversionValueResolver $valueResolver = null, ?PinterestCatalogIdResolver $pinterestIdResolver = null)
-    {
+    public function __construct(
+        ?ConversionValueResolver $valueResolver = null,
+        ?PinterestCatalogIdResolver $pinterestIdResolver = null,
+        ?PurchaseCostResolver $costResolver = null,
+    ) {
         // Optional so the class stays constructible with `new OrderEventNormalizer()`
         // (services.xml, tests) - the resolver is a pure, stateless helper.
         $this->valueResolver = $valueResolver ?? new ConversionValueResolver();
         $this->pinterestIdResolver = $pinterestIdResolver ?? new PinterestCatalogIdResolver();
+        $this->costResolver = $costResolver ?? new PurchaseCostResolver();
+    }
+
+    /**
+     * The product reference AxiTrace matches cost catalog entries and refund
+     * lines on. Empty for a line without a product id.
+     */
+    public static function externalIdFor(?string $productId): string
+    {
+        return $productId !== null && $productId !== '' ? self::EXTERNAL_ID_PREFIX . $productId : '';
     }
 
     /**
@@ -82,6 +107,8 @@ final class OrderEventNormalizer
      * @param OrderEntity $order             Shopware order with loaded associations.
      * @param string      $eventId           Deterministic UUID v5 for deduplication.
      * @param string      $workspacePublicKey AxiTrace workspace public key.
+     * @param bool        $includeCosts      Add per-line `unitCost`; true only when the request
+     *                                       is sent with the secret key.
      *
      * @return array<string, mixed>
      */
@@ -91,6 +118,7 @@ final class OrderEventNormalizer
         string $workspacePublicKey,
         ConversionValueBasis $valueBasis = ConversionValueBasis::GrossTotal,
         PinterestCatalogIdMode $pinterestCatalogIdMode = PinterestCatalogIdMode::Legacy,
+        bool $includeCosts = false,
     ): array {
         $orderCurrency  = $order->getCurrency()?->getIsoCode() ?? '';
         $billing        = $order->getBillingAddress();
@@ -119,6 +147,12 @@ final class OrderEventNormalizer
                 $productNumber = (string) ($payload['productNumber'] ?? '');
                 $product = [
                     'productId' => $productId,
+                ];
+                $externalId = self::externalIdFor($item->getProductId());
+                if ($externalId !== '') {
+                    $product['externalId'] = $externalId;
+                }
+                $product += [
                     'sku'       => $productNumber,
                     'name'      => (string) $item->getLabel(),
                     'quantity'  => (float) $item->getQuantity(),
@@ -147,6 +181,12 @@ final class OrderEventNormalizer
                 $pinterestId = $this->pinterestIdResolver->resolve($pinterestCatalogIdMode, $productNumber, $productId);
                 if ($pinterestId !== null) {
                     $product['pinterest_id'] = $pinterestId;
+                }
+                if ($includeCosts) {
+                    $unitCost = $this->costResolver->resolveNetUnitCost($item, (string) $order->getCurrencyId());
+                    if ($unitCost !== null) {
+                        $product['unitCost'] = ['amount' => $unitCost, 'currency' => $orderCurrency];
+                    }
                 }
                 $products[] = $product;
             }
@@ -227,13 +267,20 @@ final class OrderEventNormalizer
 
         // Human-readable order number (e.g. "10042") - becomes the GA4 transaction_id
         // and the ClickHouse order_id so merchants can reconcile against their shop admin.
-        $data['orderNumber'] = (string) ($order->getOrderNumber() ?? '');
+        $data['orderNumber'] = OrderReference::number($order);
 
         // VAT and shipping contained in the order, always gross and independent of the
         // configured value basis - GA4 reports them as the purchase `tax`/`shipping`
         // params, and they let the merchant reconstruct any other basis downstream.
         $data['tax']      = max(0.0, round($amountTotal - $amountNet, 2));
         $data['shipping'] = max(0.0, round($shippingGross, 2));
+        // Whether the order's prices include VAT, from the order's own tax status:
+        // "gross" (B2C) includes it, "net" (B2B) and "tax-free" do not. Omitted when
+        // the order carries no tax status, rather than guessed.
+        $taxStatus = $this->taxStatus($order);
+        if ($taxStatus !== null) {
+            $data['taxesIncluded'] = $taxStatus === CartPrice::TAX_STATE_GROSS;
+        }
         $data['valueBasis'] = $valueBasis->value;
         $sourceUrl = (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_SOURCE_URL] ?? '');
         if ($sourceUrl !== '') {
@@ -245,7 +292,7 @@ final class OrderEventNormalizer
             'eventSalt'             => $eventId,
             'event_id'              => $eventId,
             'transactionId'         => $eventId,
-            'orderId'               => (string) $order->getId(),
+            'orderId'               => OrderReference::id($order),
             'workspace_public_key'  => $workspacePublicKey,
             'source'                => self::SOURCE,
             'timestamp'             => gmdate('Y-m-d\TH:i:s\Z'),
@@ -269,6 +316,19 @@ final class OrderEventNormalizer
             'billingState'          => $this->normalizeStateCode($billing?->getCountryState()),
             'data'                  => $data,
         ];
+    }
+
+    private function taxStatus(OrderEntity $order): ?string
+    {
+        try {
+            $status = $order->getTaxStatus() ?? $order->getPrice()->getTaxStatus();
+        } catch (\Error) {
+            // getPrice() is a typed non-nullable property that is uninitialised on an
+            // order loaded without its price - treat as "unknown".
+            return null;
+        }
+
+        return $status !== '' ? $status : null;
     }
 
     private function formatVariation(mixed $variation): string

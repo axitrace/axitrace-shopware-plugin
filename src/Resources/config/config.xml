@@ -22,6 +22,14 @@
             <helpText lang="de-DE">Zu finden unter axitrace.com → Workspace → Keys. Wird verschlüsselt gespeichert.</helpText>
         </input-field>
 
+        <input-field type="password">
+            <name>secretKey</name>
+            <label>AxiTrace secret key (optional, sk_live_...)</label>
+            <label lang="de-DE">AxiTrace Secret Key (optional, sk_live_...)</label>
+            <helpText>Optional. Needed only for profit tracking: with the secret key the plugin sends each order line's purchase price (net, from the product's purchase prices in the order currency) and reports refunds and cancellations to AxiTrace. Sent from your server only, never to the browser. Leave empty to send neither. Find it in AxiTrace under Settings - Container Information - Secret Key.</helpText>
+            <helpText lang="de-DE">Optional. Nur für die Gewinnerfassung nötig: Mit dem Secret Key sendet das Plugin den Einkaufspreis jeder Bestellposition (netto, aus den Einkaufspreisen des Produkts in der Bestellwährung) und meldet Erstattungen und Stornierungen an AxiTrace. Wird nur von Ihrem Server gesendet, nie an den Browser. Leer lassen, um beides nicht zu senden. Zu finden in AxiTrace unter Settings - Container Information - Secret Key.</helpText>
+        </input-field>
+
         <input-field type="text">
             <name>trackingDomain</name>
             <label>Custom tracking domain (optional)</label>

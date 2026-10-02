@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AxitraceShopware6\HttpClient;
 
 use AxitraceShopware6\Exception\IngestionUnreachableException;
+use AxitraceShopware6\Exception\SecretKeyRejectedException;
 use Psr\Log\LoggerInterface;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -13,6 +14,7 @@ final class IngestionApiClient
 {
     public const DEFAULT_API_BASE_URL = 'https://stat.axitrace.com';
     public const ENDPOINT_PATH = '/shopware/pixel';
+    public const REFUND_ENDPOINT_PATH = '/v1/refund';
     private const TIMEOUT_SECONDS = 2;
     private const MAX_DURATION_SECONDS = 2;
 
@@ -26,20 +28,87 @@ final class IngestionApiClient
         $this->baseUrl = $this->resolveBaseUrl($apiBaseUrlOverride);
     }
 
-    public function sendEvent(array $payload): void
+    /**
+     * Sends a purchase (or any pixel event) to `/shopware/pixel`.
+     *
+     * With a non-empty secret key the request carries
+     * `Authorization: Basic base64(<secret_key>:)`, which is what makes the
+     * server keep the per-line `unitCost` fields; without it the server strips
+     * them. Callers only put cost data into the payload when they also pass the key.
+     *
+     * A wrong key must never cost the merchant a purchase: when AxiTrace answers
+     * 401 to a request sent with the key, the rejection is logged at critical
+     * (without the key) and the purchase is sent ONCE more, without the
+     * Authorization header and without any `unitCost`, exactly as a shop without
+     * a key would send it. Only that resend's failure reaches the caller.
+     *
+     * @param array<string, mixed> $payload
+     *
+     * @throws IngestionUnreachableException when the purchase could not be delivered
+     */
+    public function sendEvent(array $payload, string $secretKey = ''): void
     {
         try {
-            $response = $this->httpClient->request('POST', $this->baseUrl . self::ENDPOINT_PATH, [
+            $this->post(self::ENDPOINT_PATH, $payload, $secretKey);
+        } catch (SecretKeyRejectedException) {
+            $this->post(self::ENDPOINT_PATH, self::withoutUnitCosts($payload), '');
+        }
+    }
+
+    /**
+     * Sends a refund or cancellation to `/v1/refund`. That endpoint accepts
+     * secret-key authentication only, so an empty key is a caller error.
+     * A refund is never sent without a valid key: a 401 surfaces as
+     * {@see SecretKeyRejectedException} (already logged at critical here), which
+     * callers must not queue for a retry.
+     *
+     * @param array<string, mixed> $payload
+     *
+     * @throws SecretKeyRejectedException    when AxiTrace rejected the key
+     * @throws IngestionUnreachableException when the refund could not be delivered
+     */
+    public function sendRefund(array $payload, string $secretKey): void
+    {
+        if ($secretKey === '') {
+            throw new \InvalidArgumentException('AxiTrace refunds require the secret key.');
+        }
+
+        $this->post(self::REFUND_ENDPOINT_PATH, $payload, $secretKey);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function post(string $path, array $payload, string $secretKey): void
+    {
+        $headers = ['Accept' => 'application/json'];
+        if ($secretKey !== '') {
+            $headers['Authorization'] = 'Basic ' . base64_encode($secretKey . ':');
+        }
+
+        try {
+            $response = $this->httpClient->request('POST', $this->baseUrl . $path, [
                 'json'         => $payload,
                 'timeout'      => self::TIMEOUT_SECONDS,
                 'max_duration' => self::MAX_DURATION_SECONDS,
-                'headers'      => ['Accept' => 'application/json'],
+                'headers'      => $headers,
             ]);
             $status = $response->getStatusCode();
         } catch (TransportExceptionInterface $e) {
             // PII-safe: log only exception class name, NOT message (URL may contain query params with PII)
-            $this->logger->critical('AxiTrace ingestion-api transport failure: class=' . $e::class);
+            $this->logger->critical('AxiTrace ingestion-api transport failure: path=' . $path . ' class=' . $e::class);
             throw new IngestionUnreachableException('transport error', 0, $e);
+        }
+
+        if ($status === 401 && $secretKey !== '') {
+            // Never log the key itself, not even a prefix of it.
+            $this->logger->critical(sprintf(
+                'AxiTrace: the secret key configured in the plugin was rejected (HTTP 401) on path=%s. '
+                . 'Check that it is the Secret Key of the same workspace as the public key. '
+                . 'Purchases are sent without product costs and refunds are not reported until it is fixed.',
+                $path,
+            ));
+            throw new SecretKeyRejectedException('HTTP 401 for the configured secret key');
         }
 
         if ($status < 200 || $status >= 300) {
@@ -52,12 +121,36 @@ final class IngestionApiClient
                 // Body may not be JSON — ignore; we already have the status code
             }
             $this->logger->critical(sprintf(
-                'AxiTrace ingestion-api non-2xx: status=%d error_code=%s',
+                'AxiTrace ingestion-api non-2xx: path=%s status=%d error_code=%s',
+                $path,
                 $status,
                 $errorCode === '' ? 'n/a' : $errorCode,
             ));
             throw new IngestionUnreachableException('HTTP ' . $status);
         }
+    }
+
+    /**
+     * The purchase without any per-line `unitCost`: what may travel on a request
+     * that is not authenticated with the secret key.
+     *
+     * @param array<string, mixed> $payload
+     *
+     * @return array<string, mixed>
+     */
+    public static function withoutUnitCosts(array $payload): array
+    {
+        if (!isset($payload['data']['products']) || !is_array($payload['data']['products'])) {
+            return $payload;
+        }
+
+        foreach ($payload['data']['products'] as $i => $product) {
+            if (is_array($product)) {
+                unset($payload['data']['products'][$i]['unitCost']);
+            }
+        }
+
+        return $payload;
     }
 
     private function resolveBaseUrl(?string $override): string
