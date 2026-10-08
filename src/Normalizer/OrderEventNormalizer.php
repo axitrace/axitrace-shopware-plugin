@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AxitraceShopware6\Normalizer;
 
+use AxitraceShopware6\ClickId\PersistedClickIdReader;
 use AxitraceShopware6\Consent\ConsentGate;
 use AxitraceShopware6\Config\PinterestCatalogIdMode;
 use AxitraceShopware6\Subscriber\OrderPlacedSubscriber;
@@ -32,6 +33,8 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  *       taxesIncluded?: bool,         // the order's tax status: true for gross, false for net / tax-free
  *       valueBasis: string,           // which amount `value`/`revenue` report (ConversionValueBasis)
  *       fbp?: string, fbc?: string,   // present only when captured at order placement
+ *       ttp?, rdt_uuid?, obref?: string,          // pixel browser ids, same
+ *       gclid?, gbraid?, wbraid?, ttclid?, rdt_cid?, oppref?: string,  // bare ad click ids, same
  *       _ga?: string, ga_session_id?: string  // GA cookies captured at order placement
  *     }
  *   }
@@ -70,7 +73,7 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  */
 final class OrderEventNormalizer
 {
-    private const PLUGIN_VERSION = '0.5.0';
+    private const PLUGIN_VERSION = '0.5.1';
     private const EXTERNAL_ID_PREFIX = 'shopware:';
     private const SDK_VERSION    = 'shopware-1.0';
     private const SOURCE         = 'shopware';
@@ -227,15 +230,32 @@ final class OrderEventNormalizer
             $data['fbc'] = $fbc;
         }
 
-        // TikTok / Reddit identifiers captured at order placement. Without them the
-        // purchase reaches TikTok Events API and Reddit CAPI with no platform identifier
-        // of its own, leaving those destinations to match on e-mail alone.
+        // TikTok / Reddit / OpenAI Ads browser identifiers captured at order placement.
+        // Without them the purchase reaches TikTok Events API, Reddit CAPI and OpenAI
+        // Ads with no platform identifier of its own, leaving those destinations to
+        // match on e-mail alone.
         foreach ([
             'ttp' => OrderPlacedSubscriber::CUSTOM_FIELD_TTP,
             'rdt_uuid' => OrderPlacedSubscriber::CUSTOM_FIELD_RDT_UUID,
-            'rdt_cid' => OrderPlacedSubscriber::CUSTOM_FIELD_RDT_CID,
+            'obref' => OrderPlacedSubscriber::CUSTOM_FIELD_OBREF,
         ] as $key => $customField) {
-            $value = (string) ($customFields[$customField] ?? '');
+            $value = $customFields[$customField] ?? null;
+            if (is_string($value) && $value !== '') {
+                $data[$key] = $value;
+            }
+        }
+
+        // Ad click ids captured at order placement (gclid, gbraid, wbraid, ttclid,
+        // rdt_cid, oppref), forwarded as flat `data` keys - the keys event-worker reads
+        // them from. Always the bare click id: unwrap() also reduces a raw web SDK
+        // cookie value ("v2|<firstSeenMs>|<clickId>") that plugin 0.5.0 and older
+        // stored for rdt_cid on orders that are paid only after the update.
+        foreach (OrderPlacedSubscriber::CLICK_ID_CUSTOM_FIELDS as $key => $customField) {
+            $value = $customFields[$customField] ?? null;
+            if (!is_string($value)) {
+                continue;
+            }
+            $value = trim(PersistedClickIdReader::unwrap($value));
             if ($value !== '') {
                 $data[$key] = $value;
             }

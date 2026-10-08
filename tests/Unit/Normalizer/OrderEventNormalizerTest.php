@@ -469,6 +469,36 @@ final class OrderEventNormalizerTest extends TestCase
     }
 
     /**
+     * An order placed under 0.5.0 or older stored `_rdt_cid` raw
+     * ("v2|<firstSeenMs>|<clickId>"); when it is paid after the update, Reddit must
+     * still receive only the click id. Bare ids pass through, empty and non-string
+     * values are not sent.
+     */
+    public function testClickIdsAreForwardedBareIncludingLegacyRawRedditCookie(): void
+    {
+        if (!class_exists(\Shopware\Core\Checkout\Order\OrderEntity::class)) {
+            $this->markTestSkipped('Shopware OrderEntity not installed.');
+        }
+
+        $order = $this->makeFullOrder();
+        $order->setCustomFields([
+            \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_RDT_CID => 'v2|1787027570150|t2_legacy_click',
+            \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_GCLID   => 'Cj0KCQjw-bare',
+            \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_TTCLID  => '',
+            \AxitraceShopware6\Subscriber\OrderPlacedSubscriber::CUSTOM_FIELD_OPPREF  => ['not', 'a', 'string'],
+        ]);
+
+        $data = $this->normalizer->normalize($order, 'evt-legacy-rdt', 'pk_test')['data'];
+
+        self::assertSame('t2_legacy_click', $data['rdt_cid']);
+        self::assertSame('Cj0KCQjw-bare', $data['gclid']);
+        self::assertArrayNotHasKey('ttclid', $data);
+        self::assertArrayNotHasKey('oppref', $data);
+        self::assertArrayNotHasKey('gbraid', $data);
+        self::assertArrayNotHasKey('obref', $data);
+    }
+
+    /**
      * The consent decision recorded at order placement rides on `data.consent`
      * so the AxiTrace worker can apply the workspace consent policy to the
      * server-side purchase. Only the two real decisions are forwarded; an

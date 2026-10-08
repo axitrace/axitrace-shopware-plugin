@@ -115,7 +115,11 @@
             <tag name="kernel.event_subscriber"/>
         </service>
 
-        <!-- OrderPlacedSubscriber: captures _fbp/_fbc cookies and the consent decision at
+        <!-- PersistedClickIdReader: ad click ids from the request URL or the web SDK's
+             "v2|<firstSeenMs>|<clickId>" cookies; system clock -->
+        <service id="AxitraceShopware6\ClickId\PersistedClickIdReader"/>
+
+        <!-- OrderPlacedSubscriber: captures pixel cookies, ad click ids and the consent decision at
              order placement (the only request-scoped point before the async "paid" purchase dispatch) -->
         <service id="AxitraceShopware6\Subscriber\OrderPlacedSubscriber">
             <argument type="service" id="request_stack"/>
@@ -123,6 +127,7 @@
             <argument type="service" id="logger"/>
             <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
             <argument type="service" id="AxitraceShopware6\Consent\ConsentGate"/>
+            <argument type="service" id="AxitraceShopware6\ClickId\PersistedClickIdReader"/>
             <tag name="kernel.event_subscriber"/>
         </service>
 

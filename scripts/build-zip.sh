@@ -16,7 +16,9 @@ set -euo pipefail
 
 PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "${PLUGIN_DIR}/.." && pwd)"
-DOWNLOADS_DIR="${REPO_ROOT}/landing-page/public/downloads"
+# AXITRACE_DOWNLOADS_DIR builds the archive elsewhere (e.g. to validate a release
+# before it is published on the landing page).
+DOWNLOADS_DIR="${AXITRACE_DOWNLOADS_DIR:-${REPO_ROOT}/landing-page/public/downloads}"
 TMP_DIR="$(mktemp -d)"
 STAGING="${TMP_DIR}/AxitraceShopware6"
 

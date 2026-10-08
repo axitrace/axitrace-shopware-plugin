@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AxitraceShopware6\Tests\Unit\Subscriber;
 
+use AxitraceShopware6\ClickId\PersistedClickIdReader;
 use AxitraceShopware6\Config\AxitraceCrypto;
 use AxitraceShopware6\Config\PluginConfig;
 use AxitraceShopware6\Consent\ConsentGate;
@@ -88,6 +89,7 @@ final class OrderPlacedSubscriberConsentTest extends TestCase
                 $this->logger,
             ),
             new ConsentGate(),
+            new PersistedClickIdReader(),
         );
     }
 

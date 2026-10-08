@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AxitraceShopware6\Subscriber;
 
+use AxitraceShopware6\ClickId\PersistedClickIdReader;
 use AxitraceShopware6\Config\PluginConfig;
 use AxitraceShopware6\Consent\ConsentGate;
 use Psr\Log\LoggerInterface;
@@ -15,8 +16,9 @@ use Symfony\Component\HttpFoundation\RequestStack;
 /**
  * Captures request-scoped buyer context at order placement time and persists it
  * onto the order's customFields: Meta browser pixel cookies (_fbp/_fbc), the
- * buyer's real IP address and User-Agent, and Google Analytics cookies
- * (_ga client id, _ga_<container> session).
+ * buyer's real IP address and User-Agent, Google Analytics cookies
+ * (_ga client id, _ga_<container> session), the TikTok/Reddit/OpenAI Ads browser
+ * ids and the ad click ids (gclid, gbraid, wbraid, ttclid, rdt_cid, oppref).
  *
  * Why this exists: the purchase event itself is sent later, on the
  * order_transaction "paid" state transition (see OrderPaidSubscriber), which for
@@ -56,6 +58,35 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
     public const CUSTOM_FIELD_VISITOR_ID = 'axitrace_visitor_id';
     public const CUSTOM_FIELD_SESSION_ID = 'axitrace_session_id';
     public const CUSTOM_FIELD_SOURCE_URL = 'axitrace_source_url';
+
+    /**
+     * Ad click ids (0.5.1), read by PersistedClickIdReader from the request URL or from
+     * the first-party cookies the AxiTrace web SDK keeps them in, and stored as the bare
+     * click id. Keyed by the flat `data` key event-worker reads them from. `rdt_cid`
+     * keeps its pre-0.5.1 custom field (CUSTOM_FIELD_RDT_CID), which until 0.5.0 held
+     * the raw "v2|<firstSeenMs>|<clickId>" cookie.
+     */
+    public const CUSTOM_FIELD_GCLID = 'axitrace_gclid';
+    public const CUSTOM_FIELD_GBRAID = 'axitrace_gbraid';
+    public const CUSTOM_FIELD_WBRAID = 'axitrace_wbraid';
+    public const CUSTOM_FIELD_TTCLID = 'axitrace_ttclid';
+    public const CUSTOM_FIELD_OPPREF = 'axitrace_oppref';
+
+    /** OpenAI Ads browser reference (__obref cookie set by the OpenAI Ads pixel). */
+    public const CUSTOM_FIELD_OBREF = 'axitrace_obref';
+
+    /**
+     * Click id param name (PersistedClickIdReader::CLICK_IDS, also the `data` key the
+     * normalizer forwards it under) => the order custom field it is persisted in.
+     */
+    public const CLICK_ID_CUSTOM_FIELDS = [
+        'gclid' => self::CUSTOM_FIELD_GCLID,
+        'gbraid' => self::CUSTOM_FIELD_GBRAID,
+        'wbraid' => self::CUSTOM_FIELD_WBRAID,
+        'ttclid' => self::CUSTOM_FIELD_TTCLID,
+        'rdt_cid' => self::CUSTOM_FIELD_RDT_CID,
+        'oppref' => self::CUSTOM_FIELD_OPPREF,
+    ];
 
     /**
      * The shopper's consent decision as a request-scoped signal (see ConsentGate),
@@ -107,10 +138,10 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
     private const RDT_UUID_PATTERN = '/^(\d{10,16}\.)?[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i';
 
     /**
-     * Reddit click ID cookie written by the AxiTrace web SDK in its versioned
-     * format "v2|<firstSeenMs>|<clickId>".
+     * OpenAI Ads browser reference cookie (__obref): an opaque token, never
+     * synthesized, forwarded as is. Printable ASCII without spaces.
      */
-    private const RDT_CID_PATTERN = '/^v\d+\|\d{10,16}\|[A-Za-z0-9_.-]{8,500}$/';
+    private const OBREF_PATTERN = '/^[\x21-\x7E]{1,500}$/';
 
     /**
      * AxiTrace visitor/session cookies (vt_vid, vt_sid) - UUIDs written by the web SDK.
@@ -135,6 +166,7 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
         private readonly LoggerInterface $logger,
         private readonly PluginConfig $config,
         private readonly ConsentGate $consentGate,
+        private readonly PersistedClickIdReader $clickIdReader,
     ) {
     }
 
@@ -218,12 +250,12 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
             $customFields[self::CUSTOM_FIELD_GA] = $ga;
         }
 
-        // TikTok / Reddit browser and click IDs, and the AxiTrace visitor/session IDs.
+        // TikTok / Reddit / OpenAI Ads browser IDs and the AxiTrace visitor/session IDs.
         // Same reasoning as the Meta cookies above: the paid transition cannot see them.
         foreach ([
             self::CUSTOM_FIELD_TTP => ['_ttp', self::TTP_PATTERN],
             self::CUSTOM_FIELD_RDT_UUID => ['_rdt_uuid', self::RDT_UUID_PATTERN],
-            self::CUSTOM_FIELD_RDT_CID => ['_rdt_cid', self::RDT_CID_PATTERN],
+            self::CUSTOM_FIELD_OBREF => ['__obref', self::OBREF_PATTERN],
             self::CUSTOM_FIELD_VISITOR_ID => ['vt_vid', self::AXITRACE_ID_PATTERN],
             self::CUSTOM_FIELD_SESSION_ID => ['vt_sid', self::AXITRACE_ID_PATTERN],
         ] as $customField => [$cookieName, $pattern]) {
@@ -231,6 +263,13 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
             if ($value !== null) {
                 $customFields[$customField] = $value;
             }
+        }
+
+        // Ad click ids (gclid, gbraid, wbraid, ttclid, rdt_cid, oppref): the URL of this
+        // request when it carries one, else the web SDK's click-id cookies, unwrapped
+        // from "v2|<firstSeenMs>|<clickId>" and dropped once past the web SDK's age limit.
+        foreach ($this->clickIdReader->read($request) as $param => $clickId) {
+            $customFields[self::CLICK_ID_CUSTOM_FIELDS[$param]] = $clickId;
         }
 
         $gaSession = $this->findGaSessionCookie($request->cookies->all());

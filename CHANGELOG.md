@@ -5,6 +5,18 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-10-08
+
+### Fixed
+- **Server-side purchases now carry the shopper's Google, TikTok and OpenAI Ads click.** The AxiTrace web SDK keeps the ad click id from the landing URL in first-party cookies (`_gclid`, `_gbraid`, `_wbraid`, `_ttclid` for 90 days, `_rdt_cid` and `_oppref` for 28 days), because the purchase happens on a later request whose URL no longer carries it. Until now the plugin read none of them except `_rdt_cid`, so purchases reached Google Ads without their `gclid`/`gbraid`/`wbraid` and TikTok without its `ttclid`. The click ids are now read at order placement, stored on the order (custom fields `axitrace_gclid`, `axitrace_gbraid`, `axitrace_wbraid`, `axitrace_ttclid`, `axitrace_rdt_cid`, `axitrace_oppref`) and sent with the purchase as `data.gclid`, `data.gbraid`, `data.wbraid`, `data.ttclid`, `data.rdt_cid` and `data.oppref`, also when the order is paid later (asynchronous payment, payment callback, admin action).
+- **The Reddit click id is sent as the click id itself.** The plugin used to forward the raw `_rdt_cid` cookie value (`v2|<first seen>|<click id>`) as the Reddit click id. It now sends only the click id. Orders placed with 0.5.0 or older and paid after the update are corrected when the purchase is sent.
+
+### Added
+- The OpenAI Ads browser reference cookie `__obref` is stored on the order (`axitrace_obref`) and sent as `data.obref`.
+
+### Changed
+- Click id rules match the web SDK and the AxiTrace PHP SDK 1.10.0: a click id in the current request URL wins over the cookie; a cookie in an older unversioned format, a malformed value and a click older than its maximum age (counted from when it was first seen) are ignored; a landing URL that repeats an expired stored click is treated as a bookmark, not a new click.
+
 ## [0.5.0] - 2026-10-02
 
 ### Added
