@@ -87,6 +87,11 @@ final class OrderPlacedSubscriberClickIdTest extends TestCase
             '_ttclid' => "v2|{$fresh}|E.C.P.ttclid_1",
             '_rdt_cid' => "v2|{$fresh}|t2_rdt_cid_1",
             '_oppref' => "v2|{$fresh}|oppref_1",
+            '_axi_msclkid' => "v2|{$fresh}|msclkid_1",
+            '_axi_twclid' => "v2|{$fresh}|twclid_1",
+            '_axi_epik' => "v2|{$fresh}|epik_1",
+            '_axi_li_fat_id' => "v2|{$fresh}|li_fat_id_1",
+            '_axi_sccid' => "v2|{$fresh}|sccid_1",
             '__obref' => 'obref.browser-ref_1',
         ]);
 
@@ -97,6 +102,42 @@ final class OrderPlacedSubscriberClickIdTest extends TestCase
         self::assertSame('t2_rdt_cid_1', $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_RDT_CID] ?? null);
         self::assertSame('oppref_1', $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_OPPREF] ?? null);
         self::assertSame('obref.browser-ref_1', $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_OBREF] ?? null);
+        self::assertSame('msclkid_1', $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_MSCLKID] ?? null);
+        self::assertSame('twclid_1', $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_TWCLID] ?? null);
+        self::assertSame('epik_1', $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_EPIK] ?? null);
+        self::assertSame('li_fat_id_1', $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_LI_FAT_ID] ?? null);
+        self::assertSame('sccid_1', $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_SCCID] ?? null);
+    }
+
+    /**
+     * Click ids the web SDK never stored (not loaded on the landing page, or older than
+     * 0.24.0) still reach the order from the cookies the platforms' own tags write, and
+     * Snap's capitalised URL parameter is read on the checkout request.
+     */
+    public function testPlatformCookiesAndScCidArePersistedAndSentLater(): void
+    {
+        $customFields = $this->whenOrderPlaced(['ScCid' => 'snap-url-1'], [
+            '_uetmsclkid' => '_uetmsclkid-vendor-1',
+            '_twclid' => '{"twclid":"twclid-vendor-1","timestamp":1791460000000}',
+            '_epik' => 'epik-vendor-1',
+            'li_fat_id' => 'li-fat-vendor-1',
+        ]);
+
+        self::assertSame('msclkid-vendor-1', $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_MSCLKID] ?? null);
+        self::assertSame('twclid-vendor-1', $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_TWCLID] ?? null);
+        self::assertSame('epik-vendor-1', $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_EPIK] ?? null);
+        self::assertSame('li-fat-vendor-1', $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_LI_FAT_ID] ?? null);
+        self::assertSame('snap-url-1', $customFields[OrderPlacedSubscriber::CUSTOM_FIELD_SCCID] ?? null);
+
+        $order = OrderFixtures::order([OrderFixtures::lineItem(OrderFixtures::product(null))]);
+        $order->setCustomFields($customFields);
+        $data = (new OrderEventNormalizer())->normalize($order, 'evt-vendor-ids', 'pk_test')['data'];
+
+        self::assertSame('msclkid-vendor-1', $data['msclkid'] ?? null);
+        self::assertSame('twclid-vendor-1', $data['twclid'] ?? null);
+        self::assertSame('epik-vendor-1', $data['epik'] ?? null);
+        self::assertSame('li-fat-vendor-1', $data['li_fat_id'] ?? null);
+        self::assertSame('snap-url-1', $data['sccid'] ?? null);
     }
 
     public function testUrlClickIdWinsOverTheCookieOnTheCheckoutRequest(): void
@@ -122,6 +163,10 @@ final class OrderPlacedSubscriberClickIdTest extends TestCase
             '_rdt_cid' => "v2|{$expired28}|old-rdt",
             '_oppref' => 'v2|abc|bad',
             '__obref' => 'has a space',
+            '_axi_epik' => 'v2|' . (self::NOW_MS - 61 * self::DAY_MS) . '|old-epik',
+            '_axi_li_fat_id' => 'v2|' . (self::NOW_MS - 31 * self::DAY_MS) . '|old-li-fat',
+            '_axi_sccid' => 'v2|' . (self::NOW_MS - 29 * self::DAY_MS) . '|old-sccid',
+            '_axi_msclkid' => 'legacy-unversioned-msclkid',
         ]);
 
         foreach ([
@@ -130,6 +175,10 @@ final class OrderPlacedSubscriberClickIdTest extends TestCase
             OrderPlacedSubscriber::CUSTOM_FIELD_RDT_CID,
             OrderPlacedSubscriber::CUSTOM_FIELD_OPPREF,
             OrderPlacedSubscriber::CUSTOM_FIELD_OBREF,
+            OrderPlacedSubscriber::CUSTOM_FIELD_EPIK,
+            OrderPlacedSubscriber::CUSTOM_FIELD_LI_FAT_ID,
+            OrderPlacedSubscriber::CUSTOM_FIELD_SCCID,
+            OrderPlacedSubscriber::CUSTOM_FIELD_MSCLKID,
         ] as $customField) {
             self::assertArrayNotHasKey($customField, $customFields);
         }

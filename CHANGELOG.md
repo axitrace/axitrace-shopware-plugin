@@ -5,6 +5,12 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-10-08
+
+### Added
+- **Microsoft Advertising, X, Pinterest, LinkedIn and Snapchat click ids on server-side purchases.** The AxiTrace web SDK 0.24.0 keeps these click ids in first-party cookies in the same `v2|<first seen>|<click id>` format: `_axi_msclkid` and `_axi_twclid` (90 days), `_axi_epik` (60 days), `_axi_li_fat_id` (30 days) and `_axi_sccid` (28 days). They are now read at order placement, stored on the order (custom fields `axitrace_msclkid`, `axitrace_twclid`, `axitrace_epik`, `axitrace_li_fat_id`, `axitrace_sccid`) and sent with the purchase as `data.msclkid`, `data.twclid`, `data.epik`, `data.li_fat_id` and `data.sccid`.
+- Each one follows the web SDK's rules: the click id in the current URL wins (for Snapchat its own `ScCid` parameter first, then `sccid`), unless it repeats an expired stored click; otherwise the `_axi_` cookie while it is younger than its maximum age; otherwise the cookie the platform's own tag writes, read only and never changed: `_uetmsclkid` (Microsoft UET, the `_uet` prefix removed), `_twclid` (X pixel JSON or a bare id), `_epik` (Pinterest) and `li_fat_id` (LinkedIn). Snapchat has no such cookie.
+
 ## [0.5.1] - 2026-10-08
 
 ### Fixed

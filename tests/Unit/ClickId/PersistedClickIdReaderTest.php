@@ -44,6 +44,146 @@ final class PersistedClickIdReaderTest extends TestCase
         yield 'ttclid' => ['ttclid', '_ttclid', 90, 'E.C.P.CsEBttclid-value_1'];
         yield 'rdt_cid' => ['rdt_cid', '_rdt_cid', 28, '3141592653589793238_rdt'];
         yield 'oppref' => ['oppref', '_oppref', 28, 'oppref_6a3c9e1b-77'];
+        // Web SDK 0.24.0, "_axi_" cookies.
+        yield 'msclkid' => ['msclkid', '_axi_msclkid', 90, 'a1b2c3d4e5f60718293a4b5c6d7e8f90'];
+        yield 'twclid' => ['twclid', '_axi_twclid', 90, '2-7abc1def2ghi3jkl4mno5pqr'];
+        yield 'epik' => ['epik', '_axi_epik', 60, 'dj0yJnU9c2FtcGxlRXBpa1ZhbHVl'];
+        yield 'li_fat_id' => ['li_fat_id', '_axi_li_fat_id', 30, 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d'];
+        yield 'sccid' => ['sccid', '_axi_sccid', 28, 'b2a1f3c4-5d6e-4f80-9a1b-2c3d4e5f6a7b'];
+    }
+
+    /**
+     * Platform-owned cookie fallback: key, vendor cookie, raw value as the platform's
+     * tag writes it, the bare click id.
+     *
+     * @return iterable<string, array{0: string, 1: string, 2: string, 3: string}>
+     */
+    public static function vendorCookieProvider(): iterable
+    {
+        yield 'msclkid with the UET "_uet" prefix' => ['msclkid', '_uetmsclkid', '_ueta1b2c3d4e5f60718293a4b5c6d7e8f90', 'a1b2c3d4e5f60718293a4b5c6d7e8f90'];
+        yield 'msclkid bare' => ['msclkid', '_uetmsclkid', 'a1b2c3d4e5f60718293a4b5c6d7e8f90', 'a1b2c3d4e5f60718293a4b5c6d7e8f90'];
+        yield 'twclid as X pixel JSON' => ['twclid', '_twclid', '{"twclid":"2-7abc1def2ghi3jkl4mno5pqr","timestamp":1791460000000}', '2-7abc1def2ghi3jkl4mno5pqr'];
+        yield 'twclid bare (X server-side tag)' => ['twclid', '_twclid', '2-7abc1def2ghi3jkl4mno5pqr', '2-7abc1def2ghi3jkl4mno5pqr'];
+        yield 'epik bare' => ['epik', '_epik', 'dj0yJnU9c2FtcGxlRXBpa1ZhbHVl', 'dj0yJnU9c2FtcGxlRXBpa1ZhbHVl'];
+        yield 'li_fat_id bare' => ['li_fat_id', 'li_fat_id', 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d', 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d'];
+    }
+
+    public function testVendorCookiesAndUrlParamsMatchTheWebSdk(): void
+    {
+        self::assertSame(
+            ['msclkid' => '_uetmsclkid', 'twclid' => '_twclid', 'epik' => '_epik', 'li_fat_id' => 'li_fat_id'],
+            PersistedClickIdReader::VENDOR_COOKIES,
+        );
+        self::assertSame(['sccid' => ['ScCid', 'sccid']], PersistedClickIdReader::URL_PARAMS);
+    }
+
+    #[DataProvider('vendorCookieProvider')]
+    public function testPlatformCookieIsTheLastFallback(string $key, string $vendorCookie, string $raw, string $clickId): void
+    {
+        self::assertSame([$key => $clickId], $this->reader->read($this->request([], [$vendorCookie => $raw])));
+    }
+
+    #[DataProvider('vendorCookieProvider')]
+    public function testSdkCookieWinsOverThePlatformCookie(string $key, string $vendorCookie, string $raw, string $clickId): void
+    {
+        $request = $this->request([], [
+            $vendorCookie => $raw,
+            PersistedClickIdReader::CLICK_IDS[$key][0] => $this->cookie(self::NOW_MS - self::DAY_MS, 'sdk-cookie-click'),
+        ]);
+
+        self::assertSame([$key => 'sdk-cookie-click'], $this->reader->read($request));
+    }
+
+    #[DataProvider('vendorCookieProvider')]
+    public function testUrlWinsOverThePlatformCookie(string $key, string $vendorCookie, string $raw, string $clickId): void
+    {
+        self::assertSame([$key => 'url-click'], $this->reader->read($this->request([$key => 'url-click'], [$vendorCookie => $raw])));
+    }
+
+    #[DataProvider('vendorCookieProvider')]
+    public function testExpiredOrLegacySdkCookieFallsBackToThePlatformCookie(string $key, string $vendorCookie, string $raw, string $clickId): void
+    {
+        [$sdkCookie, $maxAgeDays] = PersistedClickIdReader::CLICK_IDS[$key];
+
+        foreach ([$this->cookie(self::NOW_MS - ($maxAgeDays + 1) * self::DAY_MS, 'expired-click'), 'legacy-unversioned'] as $stored) {
+            $request = $this->request([], [$vendorCookie => $raw, $sdkCookie => $stored]);
+
+            self::assertSame([$key => $clickId], $this->reader->read($request), $stored);
+        }
+    }
+
+    /**
+     * A replayed bookmark is dropped outright, as in the web SDK: the URL branch never
+     * consults the platform cookie.
+     */
+    #[DataProvider('vendorCookieProvider')]
+    public function testBookmarkReplayIgnoresThePlatformCookieToo(string $key, string $vendorCookie, string $raw, string $clickId): void
+    {
+        [$sdkCookie, $maxAgeDays] = PersistedClickIdReader::CLICK_IDS[$key];
+        $request = $this->request(
+            [$key => 'replayed-click'],
+            [$vendorCookie => $raw, $sdkCookie => $this->cookie(self::NOW_MS - ($maxAgeDays + 1) * self::DAY_MS, 'replayed-click')],
+        );
+
+        self::assertSame([], $this->reader->read($request));
+    }
+
+    /**
+     * @return iterable<string, array{0: string, 1: string}>
+     */
+    public static function malformedVendorCookieProvider(): iterable
+    {
+        yield 'UET prefix only' => ['_uetmsclkid', '_uet'];
+        yield 'msclkid with a space' => ['_uetmsclkid', '_uetabc def'];
+        yield 'msclkid over 500 characters' => ['_uetmsclkid', str_repeat('a', 501)];
+        yield 'broken JSON' => ['_twclid', '{not json'];
+        yield 'JSON without twclid' => ['_twclid', '{"other":"2-7abc"}'];
+        yield 'JSON with a numeric twclid' => ['_twclid', '{"twclid":12345678}'];
+        yield 'empty epik' => ['_epik', ''];
+        yield 'li_fat_id with a space' => ['li_fat_id', 'has a space'];
+    }
+
+    #[DataProvider('malformedVendorCookieProvider')]
+    public function testMalformedPlatformCookieIsIgnored(string $vendorCookie, string $raw): void
+    {
+        self::assertSame([], $this->reader->read($this->request([], [$vendorCookie => $raw])));
+    }
+
+    /** Snap documents no cookie holding the click id (_scid is the browser id). */
+    public function testSnapHasNoPlatformCookieFallback(): void
+    {
+        $request = $this->request([], ['_scid' => 'b2a1f3c4-5d6e-4f80', 'sccid' => 'b2a1f3c4-5d6e-4f80', 'ScCid' => 'b2a1f3c4']);
+
+        self::assertSame([], $this->reader->read($request));
+    }
+
+    public function testSnapClickIdIsReadFromItsCapitalisedUrlParameter(): void
+    {
+        self::assertSame(['sccid' => 'snap-click-1'], $this->reader->read($this->request(['ScCid' => 'snap-click-1'], [])));
+    }
+
+    public function testCapitalisedScCidWinsOverLowercaseSccid(): void
+    {
+        $request = $this->request(['ScCid' => 'snap-capital', 'sccid' => 'snap-lower'], []);
+
+        self::assertSame(['sccid' => 'snap-capital'], $this->reader->read($request));
+    }
+
+    public function testInvalidScCidFallsBackToLowercaseSccid(): void
+    {
+        $request = $this->request(['ScCid' => 'has space', 'sccid' => 'snap-lower'], []);
+
+        self::assertSame(['sccid' => 'snap-lower'], $this->reader->read($request));
+    }
+
+    public function testScCidReplayOfAnExpiredStoredSnapClickIsDropped(): void
+    {
+        $request = $this->request(
+            ['ScCid' => 'snap-old'],
+            ['_axi_sccid' => $this->cookie(self::NOW_MS - 29 * self::DAY_MS, 'snap-old')],
+        );
+
+        self::assertSame([], $this->reader->read($request));
     }
 
     public function testTheReaderCoversExactlyTheWebSdkClickIdCookies(): void
@@ -56,6 +196,11 @@ final class PersistedClickIdReaderTest extends TestCase
                 'ttclid' => ['_ttclid', 90],
                 'rdt_cid' => ['_rdt_cid', 28],
                 'oppref' => ['_oppref', 28],
+                'msclkid' => ['_axi_msclkid', 90],
+                'twclid' => ['_axi_twclid', 90],
+                'epik' => ['_axi_epik', 60],
+                'li_fat_id' => ['_axi_li_fat_id', 30],
+                'sccid' => ['_axi_sccid', 28],
             ],
             PersistedClickIdReader::CLICK_IDS,
         );

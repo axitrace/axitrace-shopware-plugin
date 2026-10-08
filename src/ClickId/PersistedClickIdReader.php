@@ -9,7 +9,8 @@ use Symfony\Component\HttpFoundation\Request;
 /**
  * Reads the ad click ids of the current storefront request: from the URL when the
  * request carries one, otherwise from the first-party cookies the AxiTrace web SDK
- * persists them in.
+ * persists them in, otherwise (Microsoft, X, Pinterest, LinkedIn) from the cookie the
+ * platform's own tag writes.
  *
  * Why this exists: the web SDK reads a click id from the landing URL and keeps it in
  * a first-party cookie (`_gclid`, `_ttclid`, ...), because the purchase happens on a
@@ -30,14 +31,23 @@ use Symfony\Component\HttpFoundation\Request;
  * click is past its maximum age: the web SDK treats that as a bookmarked or shared
  * landing URL, not a new ad click, and drops it (`isKnownStaleCookie`).
  *
+ * Web SDK 0.24.0 added msclkid, twclid, epik, li_fat_id and sccid (PERSISTED_CLICK_IDS
+ * in velitrack-sdk.js). Their cookies carry an "_axi_" prefix because the plain names
+ * belong to the platforms' tags. When neither the URL nor that cookie has the click,
+ * the platform's own cookie (VENDOR_COOKIES) is read, never written: the SDK's
+ * `readVendorClickId`. Snap's URL parameter is "ScCid" (case-sensitive); "sccid" is
+ * accepted too, "ScCid" first.
+ *
  * Pure apart from the injected clock: no I/O, no side effects.
  */
 final class PersistedClickIdReader
 {
     /**
-     * Click id param name => [cookie name, maximum age in days], exactly as the web SDK
-     * writes them: 90 days for Google and TikTok, 28 for Reddit and OpenAI Ads.
-     * The param names are the flat keys event-worker reads from `data`.
+     * Click id key => [cookie name, maximum age in days], exactly as the web SDK writes
+     * them: 90 days for Google, TikTok, Microsoft and X, 60 for Pinterest, 30 for
+     * LinkedIn, 28 for Reddit, OpenAI Ads and Snapchat. The keys are the flat keys
+     * event-worker reads from `data` and, unless URL_PARAMS says otherwise, the URL
+     * parameter the click arrives in.
      */
     public const CLICK_IDS = [
         'gclid' => ['_gclid', 90],
@@ -46,6 +56,31 @@ final class PersistedClickIdReader
         'ttclid' => ['_ttclid', 90],
         'rdt_cid' => ['_rdt_cid', 28],
         'oppref' => ['_oppref', 28],
+        'msclkid' => ['_axi_msclkid', 90],
+        'twclid' => ['_axi_twclid', 90],
+        'epik' => ['_axi_epik', 60],
+        'li_fat_id' => ['_axi_li_fat_id', 30],
+        'sccid' => ['_axi_sccid', 28],
+    ];
+
+    /**
+     * URL parameters, in priority order, of a click id whose parameter differs from its
+     * key. Snap's own parameter is "ScCid" (query keys are case-sensitive).
+     */
+    public const URL_PARAMS = [
+        'sccid' => ['ScCid', 'sccid'],
+    ];
+
+    /**
+     * The cookie the platform's own tag keeps the click id in, read only as the last
+     * fallback: UET, the X pixel, the Pinterest tag, the LinkedIn Insight Tag. Snap
+     * documents no such cookie.
+     */
+    public const VENDOR_COOKIES = [
+        'msclkid' => '_uetmsclkid',
+        'twclid' => '_twclid',
+        'epik' => '_epik',
+        'li_fat_id' => 'li_fat_id',
     ];
 
     private const VERSION_PREFIX = 'v2|';
@@ -71,7 +106,7 @@ final class PersistedClickIdReader
     }
 
     /**
-     * Every click id this request carries, keyed by its param name (see CLICK_IDS).
+     * Every click id this request carries, keyed by its CLICK_IDS key.
      * A click id that is absent, malformed or expired is simply not in the result.
      *
      * @return array<string, string>
@@ -81,25 +116,42 @@ final class PersistedClickIdReader
         $now = ($this->nowMs)();
         $clickIds = [];
 
-        foreach (self::CLICK_IDS as $param => [$cookieName, $maxAgeDays]) {
+        $query = $request->query->all();
+
+        foreach (self::CLICK_IDS as $key => [$cookieName, $maxAgeDays]) {
             $cookie = $request->cookies->get($cookieName);
             $cookie = is_string($cookie) ? $cookie : null;
 
-            $fromUrl = $this->fromUrl($request->query->all()[$param] ?? null);
+            $fromUrl = null;
+            foreach (self::URL_PARAMS[$key] ?? [$key] as $param) {
+                $fromUrl = $this->fromUrl($query[$param] ?? null);
+                if ($fromUrl !== null) {
+                    break;
+                }
+            }
+
             if ($fromUrl !== null) {
                 if (!$this->isKnownStaleCookie($cookie, $fromUrl, $maxAgeDays, $now)) {
-                    $clickIds[$param] = $fromUrl;
+                    $clickIds[$key] = $fromUrl;
                 }
                 continue;
             }
 
-            if ($cookie === null) {
+            $parsed = $cookie !== null ? self::parse($cookie) : null;
+            if ($parsed !== null && !self::isExpired($parsed['firstSeenMs'], $maxAgeDays, $now)) {
+                $clickIds[$key] = $parsed['clickId'];
                 continue;
             }
 
-            $parsed = self::parse($cookie);
-            if ($parsed !== null && !self::isExpired($parsed['firstSeenMs'], $maxAgeDays, $now)) {
-                $clickIds[$param] = $parsed['clickId'];
+            $vendorCookie = self::VENDOR_COOKIES[$key] ?? null;
+            if ($vendorCookie === null) {
+                continue;
+            }
+
+            $vendorValue = $request->cookies->get($vendorCookie);
+            $fromVendor = is_string($vendorValue) ? self::fromVendorCookie($vendorCookie, $vendorValue) : null;
+            if ($fromVendor !== null) {
+                $clickIds[$key] = $fromVendor;
             }
         }
 
@@ -140,6 +192,28 @@ final class PersistedClickIdReader
         }
 
         return ['firstSeenMs' => $firstSeenMs, 'clickId' => $clickId];
+    }
+
+    /**
+     * The click id inside a platform-owned cookie, or null. Formats, as the web SDK's
+     * readVendorClickId() reads them:
+     *   _uetmsclkid      - UET writes "_uet" + msclkid; a bare msclkid is accepted too;
+     *   _twclid          - the X pixel writes JSON {"twclid": "...", ...}; the X
+     *                      server-side tag writes the bare twclid;
+     *   _epik, li_fat_id - the bare click id.
+     */
+    private static function fromVendorCookie(string $cookieName, string $raw): ?string
+    {
+        $value = trim($raw);
+
+        if ($cookieName === '_uetmsclkid' && str_starts_with($value, '_uet')) {
+            $value = substr($value, 4);
+        } elseif ($cookieName === '_twclid' && str_starts_with($value, '{')) {
+            $decoded = json_decode($value, true);
+            $value = is_array($decoded) && is_string($decoded['twclid'] ?? null) ? trim($decoded['twclid']) : '';
+        }
+
+        return preg_match(self::CLICK_ID_PATTERN, $value) === 1 ? $value : null;
     }
 
     private function fromUrl(mixed $value): ?string

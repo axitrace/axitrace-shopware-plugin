@@ -72,11 +72,22 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
     public const CUSTOM_FIELD_TTCLID = 'axitrace_ttclid';
     public const CUSTOM_FIELD_OPPREF = 'axitrace_oppref';
 
+    /**
+     * Microsoft Advertising, X, Pinterest, LinkedIn and Snapchat click ids (0.5.2), which
+     * web SDK 0.24.0 persists in `_axi_*` cookies; Microsoft, X, Pinterest and LinkedIn
+     * also fall back to the platform's own cookie (PersistedClickIdReader::VENDOR_COOKIES).
+     */
+    public const CUSTOM_FIELD_MSCLKID = 'axitrace_msclkid';
+    public const CUSTOM_FIELD_TWCLID = 'axitrace_twclid';
+    public const CUSTOM_FIELD_EPIK = 'axitrace_epik';
+    public const CUSTOM_FIELD_LI_FAT_ID = 'axitrace_li_fat_id';
+    public const CUSTOM_FIELD_SCCID = 'axitrace_sccid';
+
     /** OpenAI Ads browser reference (__obref cookie set by the OpenAI Ads pixel). */
     public const CUSTOM_FIELD_OBREF = 'axitrace_obref';
 
     /**
-     * Click id param name (PersistedClickIdReader::CLICK_IDS, also the `data` key the
+     * Click id key (PersistedClickIdReader::CLICK_IDS, also the `data` key the
      * normalizer forwards it under) => the order custom field it is persisted in.
      */
     public const CLICK_ID_CUSTOM_FIELDS = [
@@ -86,6 +97,11 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
         'ttclid' => self::CUSTOM_FIELD_TTCLID,
         'rdt_cid' => self::CUSTOM_FIELD_RDT_CID,
         'oppref' => self::CUSTOM_FIELD_OPPREF,
+        'msclkid' => self::CUSTOM_FIELD_MSCLKID,
+        'twclid' => self::CUSTOM_FIELD_TWCLID,
+        'epik' => self::CUSTOM_FIELD_EPIK,
+        'li_fat_id' => self::CUSTOM_FIELD_LI_FAT_ID,
+        'sccid' => self::CUSTOM_FIELD_SCCID,
     ];
 
     /**

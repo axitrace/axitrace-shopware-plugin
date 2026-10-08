@@ -73,7 +73,7 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  */
 final class OrderEventNormalizer
 {
-    private const PLUGIN_VERSION = '0.5.1';
+    private const PLUGIN_VERSION = '0.5.2';
     private const EXTERNAL_ID_PREFIX = 'shopware:';
     private const SDK_VERSION    = 'shopware-1.0';
     private const SOURCE         = 'shopware';
@@ -246,8 +246,9 @@ final class OrderEventNormalizer
         }
 
         // Ad click ids captured at order placement (gclid, gbraid, wbraid, ttclid,
-        // rdt_cid, oppref), forwarded as flat `data` keys - the keys event-worker reads
-        // them from. Always the bare click id: unwrap() also reduces a raw web SDK
+        // rdt_cid, oppref, msclkid, twclid, epik, li_fat_id, sccid), forwarded as flat
+        // `data` keys - the keys event-worker reads them from. Always the bare click
+        // id: unwrap() also reduces a raw web SDK
         // cookie value ("v2|<firstSeenMs>|<clickId>") that plugin 0.5.0 and older
         // stored for rdt_cid on orders that are paid only after the update.
         foreach (OrderPlacedSubscriber::CLICK_ID_CUSTOM_FIELDS as $key => $customField) {
