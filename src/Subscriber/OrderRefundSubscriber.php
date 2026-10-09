@@ -162,7 +162,15 @@ final class OrderRefundSubscriber implements EventSubscriberInterface
             return;
         }
 
+        // Names the workspace the purchases go to, so AxiTrace refuses a secret key
+        // of ANOTHER workspace (401) instead of booking the refund there, where it
+        // could reduce an unrelated order with the same order number.
+        $publicKey = $this->config->getPublicKey($salesChannelId);
+
         foreach ($bodies as $body) {
+            if ($publicKey !== '') {
+                $body['workspace_public_key'] = $publicKey;
+            }
             try {
                 $this->ingestionClient->sendRefund($body, $secretKey);
             } catch (SecretKeyRejectedException) {

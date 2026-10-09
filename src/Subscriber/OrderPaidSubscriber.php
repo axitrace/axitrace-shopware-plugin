@@ -93,7 +93,10 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
         $orderCriteria->addAssociation('lineItems.product.categories');
         // Purchase prices are inherited from the parent product when a variant has none.
         $orderCriteria->addAssociation('lineItems.product.parent');
-        $orderCriteria->addAssociation('transactions');
+        // State: picks the paid transaction among several. Payment method: selects
+        // the merchant's payment fee rule in AxiTrace's profit engine.
+        $orderCriteria->addAssociation('transactions.stateMachineState');
+        $orderCriteria->addAssociation('transactions.paymentMethod');
 
         /** @var OrderEntity|null $order */
         $order = $this->orderRepository->search($orderCriteria, $context)->first();

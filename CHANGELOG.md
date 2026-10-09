@@ -5,6 +5,15 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-10-09
+
+### Fixed
+- **Payment fee rules now apply to Shopware orders.** The purchase never said how the order was paid, so AxiTrace profit tracking always used the workspace's default payment fee and a payment fee rule could never match a Shopware order. The purchase now carries `data.paymentInfo.method`: the technical name of the payment method of the paid transaction (for example `payment_paypal`, as shown in the Shopware admin under Settings, Payment methods), else its name. In AxiTrace, add the payment fee rule for that technical name.
+- **Shipping on net-priced (B2B) orders is reported gross.** For an order with tax status "net" Shopware keeps the shipping total net, with the tax on top, and the plugin sent that net figure as `data.shipping`, which the contract defines as gross. AxiTrace profit tracking then attributed too little of the order's net revenue to shipping and too much to the product lines (Profit per product), GA4 got a net `shipping`, and the "excl. shipping" conversion value settings subtracted too little. Gross and tax-free orders are unchanged.
+- **A mistyped secret key is no longer silent.** AxiTrace keeps a purchase sent with a key it does not recognise and drops only its product costs, answering 202 as for any other purchase, so nothing told the merchant. When AxiTrace marks the answer with `X-AxiTrace-Cost-Key: unverified` (ingestion change of 2026-10-09), the plugin now logs a critical message (without the key) saying the key is not valid and costs are being dropped. The purchase is not sent again.
+- **A refund is no longer booked in another workspace.** `/v1/refund` picks the workspace by the secret key alone, so with the secret key of another workspace configured, purchases were refused (401, and resent without costs) but refunds were accepted and booked in that other workspace, where they could reduce an unrelated order with the same order number. Refunds now carry `workspace_public_key`; AxiTrace (ingestion change of 2026-10-09) answers 401 when it does not match the secret key's workspace, and the plugin logs it at critical and does not queue it.
+- With several transactions on one order, the paid one is now really picked for the event id: the transaction state was not loaded, so the most recent transaction was always used.
+
 ## [0.5.2] - 2026-10-08
 
 ### Added

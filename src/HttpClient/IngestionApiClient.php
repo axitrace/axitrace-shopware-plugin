@@ -15,6 +15,11 @@ final class IngestionApiClient
     public const DEFAULT_API_BASE_URL = 'https://stat.axitrace.com';
     public const ENDPOINT_PATH = '/shopware/pixel';
     public const REFUND_ENDPOINT_PATH = '/v1/refund';
+    /**
+     * Set by AxiTrace on a 202 to a request whose secret key did not verify:
+     * the event was kept, its cost fields were dropped.
+     */
+    public const COST_KEY_HEADER = 'x-axitrace-cost-key';
     private const TIMEOUT_SECONDS = 2;
     private const MAX_DURATION_SECONDS = 2;
 
@@ -128,6 +133,35 @@ final class IngestionApiClient
             ));
             throw new IngestionUnreachableException('HTTP ' . $status);
         }
+
+        if ($secretKey !== '' && $this->costKeyUnverified($response)) {
+            // Accepted, but AxiTrace did not recognise the key (mistyped, rotated,
+            // or not a secret key at all): costs were dropped. Nothing to resend -
+            // only the merchant can fix the key, so say so loudly (never the key).
+            $this->logger->critical(sprintf(
+                'AxiTrace: the secret key configured in the plugin is not a valid AxiTrace secret key (path=%s). '
+                . 'The purchase was tracked but its product costs were dropped, so profit uses the default margin. '
+                . 'Copy the Secret Key of the same workspace as the public key again.',
+                $path,
+            ));
+        }
+    }
+
+    private function costKeyUnverified(\Symfony\Contracts\HttpClient\ResponseInterface $response): bool
+    {
+        try {
+            $values = $response->getHeaders(false)[self::COST_KEY_HEADER] ?? [];
+        } catch (\Throwable) {
+            return false;
+        }
+
+        foreach ($values as $value) {
+            if (strtolower(trim((string) $value)) === 'unverified') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -112,7 +112,7 @@ bin/console cache:clear
 
 | Event | Trigger |
 |-------|---------|
-| `purchase` | Shopware `OrderStateMachineStateChangeEvent` fires when an order transitions to the `paid` state. Idempotent via the `axitrace_failed_event_log` unique constraint. |
+| `purchase` | Shopware `OrderStateMachineStateChangeEvent` fires when an order transitions to the `paid` state. Idempotent via the `axitrace_failed_event_log` unique constraint. Carries the payment method's technical name (`data.paymentInfo.method`, e.g. `payment_paypal`), which selects a payment fee rule in AxiTrace profit tracking. |
 | refund | Secret key only. A payment transaction enters `refunded` or `refunded_partially`. Amounts come from the refunds a payment integration recorded in Shopware, or the whole transaction amount for a full refund. A partial refund with no recorded amount is logged and not sent. |
 | cancellation | Secret key only. A paid order enters `cancelled`, or a paid payment is cancelled. Sends what has not already been refunded. Reduces profit and POAS; ROAS and the purchase already sent to the ad platforms stay unchanged. |
 

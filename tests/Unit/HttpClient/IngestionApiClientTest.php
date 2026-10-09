@@ -409,4 +409,48 @@ final class IngestionApiClientTest extends TestCase
         $this->expectException(IngestionUnreachableException::class);
         $this->makeClient($mock)->sendEvent(['event' => 'transaction.charge']);
     }
+
+    // -------------------------------------------------------------------------
+    // 0.5.3: a 202 that says the secret key did not verify (costs dropped)
+    // -------------------------------------------------------------------------
+
+    public function testUnverifiedCostKeyHeaderIsLoggedWithoutTheKeyAndWithoutAResend(): void
+    {
+        $secret = 'sk_live_' . str_repeat('ab', 20);
+        $calls = 0;
+        $mock = new MockHttpClient(static function () use (&$calls): MockResponse {
+            ++$calls;
+
+            return new MockResponse('{"success":true}', ['http_code' => 202, 'response_headers' => ['X-AxiTrace-Cost-Key: unverified']]);
+        });
+
+        $logged = [];
+        $this->logger->method('critical')->willReturnCallback(static function (string $message) use (&$logged): void {
+            $logged[] = $message;
+        });
+
+        $this->makeClient($mock)->sendEvent(['event' => 'transaction.charge'], $secret);
+
+        self::assertSame(1, $calls, 'the purchase was accepted, it must not be sent again');
+        self::assertCount(1, $logged);
+        self::assertStringContainsString('not a valid AxiTrace secret key', $logged[0]);
+        self::assertStringNotContainsString($secret, $logged[0]);
+        self::assertStringNotContainsString('sk_live_', $logged[0]);
+    }
+
+    public function testUnverifiedCostKeyHeaderIsIgnoredWithoutASecretKey(): void
+    {
+        $this->logger->expects(self::never())->method('critical');
+
+        $mock = new MockHttpClient([new MockResponse('', ['http_code' => 202, 'response_headers' => ['X-AxiTrace-Cost-Key: unverified']])]);
+        $this->makeClient($mock)->sendEvent(['event' => 'transaction.charge']);
+    }
+
+    public function testVerifiedSecretKeyDoesNotLog(): void
+    {
+        $this->logger->expects(self::never())->method('critical');
+
+        $mock = new MockHttpClient([new MockResponse('', ['http_code' => 202])]);
+        $this->makeClient($mock)->sendEvent(['event' => 'transaction.charge'], 'sk_live_' . str_repeat('cd', 20));
+    }
 }

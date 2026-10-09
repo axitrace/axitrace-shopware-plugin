@@ -133,6 +133,7 @@ final class OrderRefundSubscriberTest extends TestCase
         self::assertSame(['Authorization: Basic ' . base64_encode(self::VALID_SK . ':')], $this->requests[0]['headers']['authorization'] ?? null);
         self::assertSame('10042', $this->requests[0]['body']['orderId'], 'the order number the purchase is stored under');
         self::assertFalse($this->requests[0]['body']['isCancellation']);
+        self::assertSame(self::VALID_PK, $this->requests[0]['body']['workspace_public_key'], 'a secret key of another workspace must be refused, not booked there');
     }
 
     public function testNothingIsSentWithoutTheSecretKey(): void

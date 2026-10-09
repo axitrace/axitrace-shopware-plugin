@@ -11,6 +11,7 @@ use AxitraceShopware6\Subscriber\OrderPlacedSubscriber;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Core\Checkout\Cart\Price\Struct\CartPrice;
 use Shopware\Core\System\Country\Aggregate\CountryState\CountryStateEntity;
+use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionEntity;
 use Shopware\Core\Checkout\Order\OrderEntity;
 
 /**
@@ -32,6 +33,7 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  *       tax: float, shipping: float,  // gross VAT / shipping contained in the order
  *       taxesIncluded?: bool,         // the order's tax status: true for gross, false for net / tax-free
  *       valueBasis: string,           // which amount `value`/`revenue` report (ConversionValueBasis)
+ *       paymentInfo?: { method },     // payment method technical name (payment fee rules)
  *       fbp?: string, fbc?: string,   // present only when captured at order placement
  *       ttp?, rdt_uuid?, obref?: string,          // pixel browser ids, same
  *       gclid?, gbraid?, wbraid?, ttclid?, rdt_cid?, oppref?: string,  // bare ad click ids, same
@@ -73,7 +75,7 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  */
 final class OrderEventNormalizer
 {
-    private const PLUGIN_VERSION = '0.5.2';
+    private const PLUGIN_VERSION = '0.5.3';
     private const EXTERNAL_ID_PREFIX = 'shopware:';
     private const SDK_VERSION    = 'shopware-1.0';
     private const SOURCE         = 'shopware';
@@ -134,8 +136,14 @@ final class OrderEventNormalizer
         $amountTotal   = (float) $order->getAmountTotal();
         $amountNet     = (float) $order->getAmountNet();
         $shippingCosts = $order->getShippingCosts();
-        $shippingGross = $shippingCosts !== null ? (float) $shippingCosts->getTotalPrice() : 0.0;
         $shippingTax   = $shippingCosts !== null ? (float) $shippingCosts->getCalculatedTaxes()->getAmount() : 0.0;
+        $shippingGross = $shippingCosts !== null ? (float) $shippingCosts->getTotalPrice() : 0.0;
+        // On a net-priced order (B2B tax status "net") Shopware's shipping total
+        // is NET and the tax comes on top; on gross and tax-free orders the total
+        // already is what the buyer paid. Reported shipping is always gross.
+        if ($this->taxStatus($order) === CartPrice::TAX_STATE_NET) {
+            $shippingGross += $shippingTax;
+        }
         $revenueAmount = $this->valueResolver->resolve($valueBasis, $amountTotal, $amountNet, $shippingGross, $shippingTax);
 
         $products = [];
@@ -303,6 +311,14 @@ final class OrderEventNormalizer
             $data['taxesIncluded'] = $taxStatus === CartPrice::TAX_STATE_GROSS;
         }
         $data['valueBasis'] = $valueBasis->value;
+        // The payment method the order was paid with, by its technical name
+        // (e.g. "payment_paypal"): AxiTrace stores it as the order's payment
+        // method and selects the merchant's payment fee rule with it. Omitted
+        // when the transaction's payment method was not loaded.
+        $paymentMethod = $this->paymentMethod($order);
+        if ($paymentMethod !== null) {
+            $data['paymentInfo'] = ['method' => $paymentMethod];
+        }
         $sourceUrl = (string) ($customFields[OrderPlacedSubscriber::CUSTOM_FIELD_SOURCE_URL] ?? '');
         if ($sourceUrl !== '') {
             $data['url'] = $sourceUrl;
@@ -337,6 +353,59 @@ final class OrderEventNormalizer
             'billingState'          => $this->normalizeStateCode($billing?->getCountryState()),
             'data'                  => $data,
         ];
+    }
+
+    /**
+     * Technical name (else name) of the payment method of the transaction that
+     * was paid: the most recently created transaction in state `paid`, else the
+     * most recently created transaction (Shopware's active one).
+     */
+    private function paymentMethod(OrderEntity $order): ?string
+    {
+        $transactions = $order->getTransactions();
+        if ($transactions === null || $transactions->count() === 0) {
+            return null;
+        }
+
+        $latest = null;
+        $latestPaid = null;
+        foreach ($transactions as $transaction) {
+            if ($latest === null || $this->isNewer($transaction, $latest)) {
+                $latest = $transaction;
+            }
+            if ($transaction->getStateMachineState()?->getTechnicalName() === 'paid'
+                && ($latestPaid === null || $this->isNewer($transaction, $latestPaid))
+            ) {
+                $latestPaid = $transaction;
+            }
+        }
+
+        $method = ($latestPaid ?? $latest)?->getPaymentMethod();
+        if ($method === null) {
+            return null;
+        }
+
+        try {
+            $technicalName = trim((string) $method->getTechnicalName());
+        } catch (\Error) {
+            // Typed property left uninitialised on an entity not hydrated by the DAL.
+            $technicalName = '';
+        }
+        if ($technicalName !== '') {
+            return $technicalName;
+        }
+
+        $name = trim((string) ($method->getTranslation('name') ?? $method->getName() ?? ''));
+
+        return $name !== '' ? $name : null;
+    }
+
+    private function isNewer(OrderTransactionEntity $candidate, OrderTransactionEntity $current): bool
+    {
+        $candidateAt = $candidate->getCreatedAt();
+        $currentAt = $current->getCreatedAt();
+
+        return $candidateAt !== null && ($currentAt === null || $candidateAt >= $currentAt);
     }
 
     private function taxStatus(OrderEntity $order): ?string
