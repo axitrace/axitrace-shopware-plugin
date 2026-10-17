@@ -5,6 +5,13 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-17
+
+### Added
+- **Customer groups excluded from tracking.** A new setting (*Excluded customers*, per Sales Channel) takes one or more Shopware customer groups, for example a B2B group on the same storefront. Customers of those groups are not tracked at all: their purchases are not sent, so they never reach AxiTrace or any connector (Meta, Google Ads, GA4 and the others), refunds and cancellations of their orders are not sent either, and while such a customer is logged in the storefront does not load the AxiTrace SDK. A skipped purchase is logged at `warning` with the order number and is never queued for a retry.
+- The customer group at order placement is stored on the order (custom field `axitrace_customer_group_id`), so an order is judged by the group the customer ordered in. Orders without it (placed before 0.6.0, created in the admin or via the API) are judged by the customer's current group.
+- New uncached storefront route `GET /axitrace/tracking-status` (`{"track": true|false}`), asked by the storefront bootstrap before it loads the SDK, only on Sales Channels with excluded groups. The page HTML carries only the route, never a visitor's group or decision, because Shopware's HTTP cache shares it across visitors. Without excluded groups the storefront output is unchanged.
+
 ## [0.5.3] - 2026-10-09
 
 ### Fixed

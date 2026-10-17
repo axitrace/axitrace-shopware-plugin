@@ -40,6 +40,9 @@ final class PluginConfig
      */
     private const CONSENT_COOKIE_REGEX = '/^[A-Za-z0-9_\-.]{1,128}$/';
 
+    /** A Shopware entity id: 32 hex characters. */
+    private const SHOPWARE_ID_REGEX = '/^[0-9a-f]{32}$/i';
+
     public function __construct(
         private readonly SystemConfigService $systemConfigService,
         private readonly AxitraceCrypto $crypto,
@@ -297,6 +300,36 @@ final class PluginConfig
         }
 
         return $name;
+    }
+
+    /**
+     * The customer groups whose customers are never tracked (see
+     * {@see \AxitraceShopware6\Exclusion\CustomerGroupExclusion}), as lowercase
+     * Shopware ids. Unset → empty: a plugin update never excludes anyone by
+     * itself. Values that are not a Shopware id are dropped, so a corrupted
+     * setting can only exclude less, never everyone.
+     *
+     * @return list<string>
+     */
+    public function getExcludedCustomerGroupIds(?string $salesChannelId = null): array
+    {
+        $raw = $this->systemConfigService->get(
+            self::CONFIG_DOMAIN . 'excludedCustomerGroups',
+            $salesChannelId,
+        );
+
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($raw as $value) {
+            if (is_string($value) && preg_match(self::SHOPWARE_ID_REGEX, $value) === 1) {
+                $ids[] = strtolower($value);
+            }
+        }
+
+        return array_values(array_unique($ids));
     }
 
     // -------------------------------------------------------------------------

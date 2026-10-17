@@ -7,6 +7,7 @@ namespace AxitraceShopware6\Tests\Unit\Subscriber;
 use AxitraceShopware6\Config\AxitraceCrypto;
 use AxitraceShopware6\Config\PluginConfig;
 use AxitraceShopware6\Consent\ConsentGate;
+use AxitraceShopware6\Exclusion\CustomerGroupExclusion;
 use AxitraceShopware6\HttpClient\IngestionApiClient;
 use AxitraceShopware6\Normalizer\RefundEventNormalizer;
 use AxitraceShopware6\ScheduledTask\FailedEventQueue;
@@ -38,6 +39,7 @@ final class OrderRefundSubscriberTest extends TestCase
 {
     private const VALID_PK = 'pk_live_aabbccddeeff00112233445566778899';
     private const VALID_SK = 'sk_' . 'live_0123456789abcdef0123456789abcdef';
+    private const B2B_GROUP = '0191d3d2c1ce7a2ba9d1f2f2c8b1ab2b';
 
     private LoggerInterface&MockObject $logger;
     private EntityRepository&MockObject $orderRepository;
@@ -54,7 +56,8 @@ final class OrderRefundSubscriberTest extends TestCase
         $this->requests = [];
     }
 
-    private function subscriber(?string $secretKey, bool $transportThrows = false, string $consentMode = 'off', int $status = 202): OrderRefundSubscriber
+    /** @param list<string> $excludedGroups */
+    private function subscriber(?string $secretKey, bool $transportThrows = false, string $consentMode = 'off', int $status = 202, array $excludedGroups = []): OrderRefundSubscriber
     {
         $systemConfig = $this->createMock(SystemConfigService::class);
         $systemConfig->method('get')->willReturnCallback(static fn (string $key): mixed => match ($key) {
@@ -62,6 +65,7 @@ final class OrderRefundSubscriberTest extends TestCase
             'AxitraceShopware6.config.publicKey'   => self::VALID_PK,
             'AxitraceShopware6.config.secretKey'   => $secretKey,
             'AxitraceShopware6.config.consentMode' => $consentMode,
+            'AxitraceShopware6.config.excludedCustomerGroups' => $excludedGroups,
             default                                => null,
         });
 
@@ -78,9 +82,12 @@ final class OrderRefundSubscriberTest extends TestCase
             return new MockResponse('', ['http_code' => $status]);
         });
 
+        $config = new PluginConfig($systemConfig, new AxitraceCrypto('test-app-secret-fixture'), $this->logger);
+
         return new OrderRefundSubscriber(
-            new PluginConfig($systemConfig, new AxitraceCrypto('test-app-secret-fixture'), $this->logger),
+            $config,
             new ConsentGate(),
+            new CustomerGroupExclusion($config),
             new IngestionApiClient($http, $this->logger, null),
             new RefundEventNormalizer(),
             $this->orderRepository,
@@ -145,6 +152,33 @@ final class OrderRefundSubscriberTest extends TestCase
         $this->subscriber(null)->onTransactionRefunded($this->stateEvent('state_enter.order_transaction.state.refunded', $order));
 
         self::assertSame([], $this->requests);
+    }
+
+    public function testRefundOfAnExcludedCustomerGroupIsNotSent(): void
+    {
+        $order = $this->refundedOrder();
+        $order->setCustomFields([CustomerGroupExclusion::CUSTOM_FIELD_CUSTOMER_GROUP => self::B2B_GROUP]);
+        $this->givenOrder($order);
+        $this->logger->expects(self::never())->method('critical');
+        $this->failedEventRepository->expects(self::never())->method('create');
+
+        $this->subscriber(self::VALID_SK, excludedGroups: [self::B2B_GROUP])
+            ->onTransactionRefunded($this->stateEvent('state_enter.order_transaction.state.refunded', $order));
+
+        self::assertSame([], $this->requests, 'its purchase was never sent, so there is nothing to reduce');
+    }
+
+    public function testRefundLoadsTheCustomersCurrentGroup(): void
+    {
+        $order = $this->refundedOrder();
+        $this->orderRepository->expects(self::once())->method('search')
+            ->with(self::callback(static fn (Criteria $criteria): bool => $criteria->getAssociation('orderCustomer')->hasAssociation('customer')))
+            ->willReturn(new EntitySearchResult('order', 1, new OrderCollection([$order]), new AggregationResultCollection(), new Criteria(), Context::createDefaultContext()));
+
+        $this->subscriber(self::VALID_SK, excludedGroups: [self::B2B_GROUP])
+            ->onTransactionRefunded($this->stateEvent('state_enter.order_transaction.state.refunded', $order));
+
+        self::assertCount(1, $this->requests, 'an order of another group is still reported');
     }
 
     public function testOrderCancellationIsSentAsCancellation(): void

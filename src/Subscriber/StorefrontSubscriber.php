@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AxitraceShopware6\Subscriber;
 
 use AxitraceShopware6\Config\PluginConfig;
+use AxitraceShopware6\Exclusion\CustomerGroupExclusion;
 use AxitraceShopware6\Normalizer\PinterestCatalogIdResolver;
 use Psr\Log\LoggerInterface;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
@@ -29,6 +30,7 @@ final class StorefrontSubscriber implements EventSubscriberInterface
     public function __construct(
         private readonly PluginConfig $config,
         private readonly PinterestCatalogIdResolver $pinterestIdResolver,
+        private readonly CustomerGroupExclusion $customerGroupExclusion,
         private readonly UrlGeneratorInterface $urlGenerator,
         private readonly LoggerInterface $logger,
     ) {
@@ -113,6 +115,15 @@ final class StorefrontSubscriber implements EventSubscriberInterface
                 'cookie' => $consentCookie,
             ],
         ];
+
+        // Customer groups excluded from tracking: only the fact that the Sales
+        // Channel HAS excluded groups is rendered (the same for every visitor, so
+        // safe in the shared HTTP cache). Whether THIS visitor is excluded is asked
+        // by the bootstrap from the uncached tracking-status endpoint before the
+        // SDK starts - the same split as the consent decision above.
+        if ($this->customerGroupExclusion->isConfigured($salesChannelId)) {
+            $config['trackingStatusUrl'] = $this->urlGenerator->generate('frontend.axitrace.tracking-status');
+        }
 
         // S-MED-2: debug key is gated behind the admin-preview header AND the per-channel debug flag.
         if ($request->headers->has('x-axitrace-admin-preview') && $this->config->isDebugMode($salesChannelId)) {

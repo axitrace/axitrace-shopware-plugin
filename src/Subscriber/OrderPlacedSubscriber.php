@@ -7,6 +7,7 @@ namespace AxitraceShopware6\Subscriber;
 use AxitraceShopware6\ClickId\PersistedClickIdReader;
 use AxitraceShopware6\Config\PluginConfig;
 use AxitraceShopware6\Consent\ConsentGate;
+use AxitraceShopware6\Exclusion\CustomerGroupExclusion;
 use Psr\Log\LoggerInterface;
 use Shopware\Core\Checkout\Cart\Event\CheckoutOrderPlacedEvent;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
@@ -204,12 +205,23 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
 
     private function capture(CheckoutOrderPlacedEvent $event): void
     {
-        $request = $this->requestStack->getCurrentRequest();
-        if ($request === null) {
-            return;
+        $customFields = [];
+
+        // Customer group at placement, for "Customer groups excluded from tracking"
+        // (CustomerGroupExclusion). Recorded on every order, with or without a
+        // request, so a customer moved to another group before the payment
+        // arrives is judged by the group they ordered in.
+        $customerGroupId = $this->customerGroupId($event);
+        if ($customerGroupId !== null) {
+            $customFields[CustomerGroupExclusion::CUSTOM_FIELD_CUSTOMER_GROUP] = $customerGroupId;
         }
 
-        $customFields = [];
+        $request = $this->requestStack->getCurrentRequest();
+        if ($request === null) {
+            $this->persist($event, $customFields);
+
+            return;
+        }
 
         $sourceUrl = $request->getSchemeAndHttpHost() . $request->getPathInfo();
         if (filter_var($sourceUrl, FILTER_VALIDATE_URL) !== false) {
@@ -293,6 +305,12 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
             $customFields[self::CUSTOM_FIELD_GA_SESSION] = $gaSession;
         }
 
+        $this->persist($event, $customFields);
+    }
+
+    /** @param array<string, string> $customFields */
+    private function persist(CheckoutOrderPlacedEvent $event, array $customFields): void
+    {
         if ($customFields === []) {
             return;
         }
@@ -301,6 +319,23 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
             'id'           => $event->getOrder()->getId(),
             'customFields' => $customFields,
         ]], $event->getContext());
+    }
+
+    /**
+     * The group of the customer who placed the order. Shopware throws when the
+     * order has no customer (deleted, or an event built without a Sales Channel
+     * context on 6.6); the order is then judged by its customer's current group
+     * when it is paid, so null is the right answer here, not an error.
+     */
+    private function customerGroupId(CheckoutOrderPlacedEvent $event): ?string
+    {
+        try {
+            $customerGroupId = $event->getCustomerGroupId();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $customerGroupId !== '' ? strtolower($customerGroupId) : null;
     }
 
     /**

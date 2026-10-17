@@ -6,6 +6,7 @@ namespace AxitraceShopware6\Tests\Unit\Subscriber;
 
 use AxitraceShopware6\Config\AxitraceCrypto;
 use AxitraceShopware6\Config\PluginConfig;
+use AxitraceShopware6\Exclusion\CustomerGroupExclusion;
 use AxitraceShopware6\Normalizer\PinterestCatalogIdResolver;
 use AxitraceShopware6\Subscriber\StorefrontSubscriber;
 use PHPUnit\Framework\TestCase;
@@ -62,6 +63,33 @@ final class StorefrontSubscriberTest extends TestCase
         self::assertSame('Translated brand', $event->getParameters()['axitraceProductContext']['brand']);
         self::assertSame('Translated category', $event->getParameters()['axitraceProductContext']['category']);
         self::assertSame('/en/axitrace/storefront-context', $event->getParameters()['axitraceConfig']['storefrontContextUrl']);
+    }
+
+    public function testTrackingStatusUrlIsRenderedOnlyWithExcludedCustomerGroups(): void
+    {
+        [$subscriber, $context] = $this->subscriber();
+        $event = new StorefrontRenderEvent('view', [], Request::create('/'), $context);
+        $subscriber->onStorefrontRender($event);
+        self::assertArrayNotHasKey('trackingStatusUrl', $event->getParameters()['axitraceConfig'], 'without the setting the page is unchanged');
+
+        [$subscriber, $context] = $this->subscriber(excludedGroups: ['0191d3d2c1ce7a2ba9d1f2f2c8b1ab2b']);
+        $event = new StorefrontRenderEvent('view', [], Request::create('/'), $context);
+        $subscriber->onStorefrontRender($event);
+        $config = $event->getParameters()['axitraceConfig'];
+        self::assertSame('/en/axitrace/tracking-status', $config['trackingStatusUrl']);
+        self::assertStringNotContainsString('0191d3d2c1ce7a2ba9d1f2f2c8b1ab2b', (string) json_encode($config), 'the page is shared by the HTTP cache: no group and no visitor decision in it');
+    }
+
+    public function testBootstrapAsksTheTrackingStatusBeforeTheSdkLoads(): void
+    {
+        $template = file_get_contents(__DIR__ . '/../../../src/Resources/views/storefront/layout/meta.html.twig');
+        self::assertIsString($template);
+
+        self::assertStringContainsString("{% if axitraceConfig.consent.mode == 'off' and axitraceConfig.trackingStatusUrl is not defined %}", $template, 'no static SDK tag when the visitor must be checked first');
+        $loadAndInit = substr($template, (int) strpos($template, 'function loadAndInit()'), (int) strpos($template, 'function injectAndInit()') - (int) strpos($template, 'function loadAndInit()'));
+        self::assertStringContainsString('window.fetch(config.trackingStatusUrl', $loadAndInit);
+        self::assertStringContainsString('status.track === false', $loadAndInit);
+        self::assertStringNotContainsString('createElement', $loadAndInit, 'the SDK tag is injected only after the answer');
     }
 
     public function testProductPageCriteriaLoadsCategoriesForInitialPageVisit(): void
@@ -143,28 +171,39 @@ final class StorefrontSubscriberTest extends TestCase
         self::assertStringNotContainsString("' + {{ axitraceProductContextError", $template, 'Exception details must not be rendered to shoppers.');
     }
 
-    /** @return array{StorefrontSubscriber, SalesChannelContext} */
-    private function subscriber(?LoggerInterface $logger = null, bool $enabled = true): array
+    /**
+     * @param list<string> $excludedGroups
+     *
+     * @return array{StorefrontSubscriber, SalesChannelContext}
+     */
+    private function subscriber(?LoggerInterface $logger = null, bool $enabled = true, array $excludedGroups = []): array
     {
         $configService = $this->createMock(SystemConfigService::class);
         $configService->method('get')->willReturnCallback(static fn (string $key) => match ($key) {
             'AxitraceShopware6.config.enabled' => $enabled,
+            'AxitraceShopware6.config.excludedCustomerGroups' => $excludedGroups,
             'AxitraceShopware6.config.publicKey' => 'pk_test_abcdef1234567890abcdef1234567890',
             'AxitraceShopware6.config.pinterestCatalogIdMode' => 'product_number_lowercase',
             default => null,
         });
         $logger ??= $this->createStub(LoggerInterface::class);
         $router = $this->createMock(UrlGeneratorInterface::class);
-        $router->method('generate')->willReturn('/en/axitrace/storefront-context');
+        $router->method('generate')->willReturnCallback(static fn (string $name): string => match ($name) {
+            'frontend.axitrace.tracking-status' => '/en/axitrace/tracking-status',
+            default => '/en/axitrace/storefront-context',
+        });
         $currency = new CurrencyEntity();
         $currency->setIsoCode('EUR');
         $context = $this->createMock(SalesChannelContext::class);
         $context->method('getSalesChannelId')->willReturn('sales-channel');
         $context->method('getCurrency')->willReturn($currency);
 
+        $config = new PluginConfig($configService, new AxitraceCrypto('secret'), $logger);
+
         return [new StorefrontSubscriber(
-            new PluginConfig($configService, new AxitraceCrypto('secret'), $logger),
+            $config,
             new PinterestCatalogIdResolver(),
+            new CustomerGroupExclusion($config),
             $router,
             $logger,
         ), $context];

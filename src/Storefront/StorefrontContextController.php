@@ -6,6 +6,7 @@ namespace AxitraceShopware6\Storefront;
 
 use AxitraceShopware6\Config\PluginConfig;
 use AxitraceShopware6\Consent\ConsentGate;
+use AxitraceShopware6\Exclusion\CustomerGroupExclusion;
 use Shopware\Core\Framework\Uuid\Uuid;
 use Shopware\Core\PlatformRequest;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
@@ -21,7 +22,33 @@ final class StorefrontContextController
         private readonly StorefrontContextProvider $provider,
         private readonly PluginConfig $config,
         private readonly ConsentGate $consentGate,
+        private readonly CustomerGroupExclusion $customerGroupExclusion,
     ) {
+    }
+
+    /**
+     * May the storefront bootstrap start the SDK for this visitor? Asked before
+     * the SDK loads, only on Sales Channels with excluded customer groups: the
+     * answer depends on the logged-in customer, and page HTML is shared by
+     * Shopware's HTTP cache, so it can only come from an uncached request.
+     */
+    #[Route(
+        path: '/axitrace/tracking-status',
+        name: 'frontend.axitrace.tracking-status',
+        defaults: [PlatformRequest::ATTRIBUTE_NO_STORE => true],
+        methods: [Request::METHOD_GET],
+    )]
+    public function trackingStatus(Request $request, SalesChannelContext $context): JsonResponse
+    {
+        if (!$this->config->isEnabled($context->getSalesChannelId())) {
+            return $this->response(['error' => 'not found'], JsonResponse::HTTP_NOT_FOUND);
+        }
+
+        if (!$this->isSameOrigin($request)) {
+            return $this->response(['error' => 'same-origin request required'], JsonResponse::HTTP_FORBIDDEN);
+        }
+
+        return $this->response(['track' => !$this->customerGroupExclusion->excludesVisitor($context)]);
     }
 
     #[Route(

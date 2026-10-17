@@ -28,10 +28,16 @@
         <!-- ConsentGate: the whole consent decision as pure functions, no deps -->
         <service id="AxitraceShopware6\Consent\ConsentGate"/>
 
+        <!-- CustomerGroupExclusion: "Customer groups excluded from tracking" (orders and browsing) -->
+        <service id="AxitraceShopware6\Exclusion\CustomerGroupExclusion">
+            <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
+        </service>
+
         <!-- StorefrontSubscriber: injects AxiTrace SDK config into every storefront page -->
         <service id="AxitraceShopware6\Subscriber\StorefrontSubscriber">
             <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
             <argument type="service" id="AxitraceShopware6\Normalizer\PinterestCatalogIdResolver"/>
+            <argument type="service" id="AxitraceShopware6\Exclusion\CustomerGroupExclusion"/>
             <argument type="service" id="router"/>
             <argument type="service" id="logger"/>
             <tag name="kernel.event_subscriber"/>
@@ -87,6 +93,7 @@
             <argument type="service" id="AxitraceShopware6\Storefront\StorefrontContextProvider"/>
             <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
             <argument type="service" id="AxitraceShopware6\Consent\ConsentGate"/>
+            <argument type="service" id="AxitraceShopware6\Exclusion\CustomerGroupExclusion"/>
             <tag name="controller.service_arguments"/>
         </service>
 
@@ -94,6 +101,7 @@
         <service id="AxitraceShopware6\Subscriber\OrderPaidSubscriber">
             <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
             <argument type="service" id="AxitraceShopware6\Consent\ConsentGate"/>
+            <argument type="service" id="AxitraceShopware6\Exclusion\CustomerGroupExclusion"/>
             <argument type="service" id="AxitraceShopware6\HttpClient\IngestionApiClient"/>
             <argument type="service" id="AxitraceShopware6\Normalizer\OrderEventNormalizer"/>
             <argument type="service" id="AxitraceShopware6\EventId\UuidV5Generator"/>
@@ -107,6 +115,7 @@
         <service id="AxitraceShopware6\Subscriber\OrderRefundSubscriber">
             <argument type="service" id="AxitraceShopware6\Config\PluginConfig"/>
             <argument type="service" id="AxitraceShopware6\Consent\ConsentGate"/>
+            <argument type="service" id="AxitraceShopware6\Exclusion\CustomerGroupExclusion"/>
             <argument type="service" id="AxitraceShopware6\HttpClient\IngestionApiClient"/>
             <argument type="service" id="AxitraceShopware6\Normalizer\RefundEventNormalizer"/>
             <argument type="service" id="order.repository"/>

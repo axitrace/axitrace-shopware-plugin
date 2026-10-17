@@ -7,6 +7,7 @@ namespace AxitraceShopware6\Tests\Integration\Subscriber;
 use AxitraceShopware6\Config\AxitraceCrypto;
 use AxitraceShopware6\Config\PluginConfig;
 use AxitraceShopware6\Consent\ConsentGate;
+use AxitraceShopware6\Exclusion\CustomerGroupExclusion;
 use AxitraceShopware6\Normalizer\ConversionValueBasis;
 use AxitraceShopware6\EventId\UuidV5Generator;
 use AxitraceShopware6\HttpClient\IngestionApiClient;
@@ -41,6 +42,8 @@ use Symfony\Component\HttpClient\Response\MockResponse;
 final class OrderPaidSubscriberTest extends TestCase
 {
     private const VALID_PK = 'pk_live_aabbccddeeff00112233445566778899';
+    private const B2B_GROUP = '0191d3d2c1ce7a2ba9d1f2f2c8b1ab2b';
+    private const RETAIL_GROUP = 'cfbd5018d38d41d8adca10d94fc8bdd6';
 
     private SystemConfigService&MockObject $configService;
     private LoggerInterface&MockObject $logger;
@@ -79,17 +82,19 @@ final class OrderPaidSubscriberTest extends TestCase
         );
     }
 
-    private function givenConfig(string $consentMode, bool $publicKeySet = true, ?string $secretKey = null): void
+    /** @param list<string> $excludedGroups */
+    private function givenConfig(string $consentMode, bool $publicKeySet = true, ?string $secretKey = null, array $excludedGroups = []): void
     {
         $this->configService
             ->method('get')
             ->willReturnCallback(
-                static function (string $key) use ($consentMode, $publicKeySet, $secretKey): mixed {
+                static function (string $key) use ($consentMode, $publicKeySet, $secretKey, $excludedGroups): mixed {
                     return match ($key) {
                         'AxitraceShopware6.config.enabled'    => true,
                         'AxitraceShopware6.config.publicKey'  => $publicKeySet ? self::VALID_PK : null,
                         'AxitraceShopware6.config.secretKey'  => $secretKey,
                         'AxitraceShopware6.config.consentMode' => $consentMode,
+                        'AxitraceShopware6.config.excludedCustomerGroups' => $excludedGroups,
                         default                               => null,
                     };
                 },
@@ -130,6 +135,7 @@ final class OrderPaidSubscriberTest extends TestCase
         $this->subscriber = new OrderPaidSubscriber(
             $this->config,
             new ConsentGate(),
+            new CustomerGroupExclusion($this->config),
             $this->ingestionClient,
             new OrderEventNormalizer(),
             new UuidV5Generator(),
@@ -143,9 +149,19 @@ final class OrderPaidSubscriberTest extends TestCase
      * Configures the system-config store: enabled + public key + the given
      * consent mode (null = key never saved — the update-path scenario).
      */
-    private function givenOrder(array $customFields = []): void
+    private function givenOrder(array $customFields = [], ?string $currentCustomerGroupId = null): void
     {
         $orderEntity = $this->buildOrderEntity('order-uuid-test-001', 'sales-channel-001', $customFields);
+        if ($currentCustomerGroupId !== null) {
+            $customer = new \Shopware\Core\Checkout\Customer\CustomerEntity();
+            $customer->setGroupId($currentCustomerGroupId);
+            $orderCustomer = new \Shopware\Core\Checkout\Order\Aggregate\OrderCustomer\OrderCustomerEntity();
+            $orderCustomer->setEmail('buyer@example.com');
+            $orderCustomer->setFirstName('Ada');
+            $orderCustomer->setLastName('Lovelace');
+            $orderCustomer->setCustomer($customer);
+            $orderEntity->setOrderCustomer($orderCustomer);
+        }
         $this->orderEntity = $orderEntity;
 
         $this->orderRepository
@@ -297,6 +313,68 @@ final class OrderPaidSubscriberTest extends TestCase
 
         // recordFailure() must have lit up the runtime counters.
         self::assertSame(1, $this->configSets['AxitraceShopware6.runtime.recent_failure_count'] ?? null);
+    }
+
+    // -------------------------------------------------------------------------
+    // Customer groups excluded from tracking (0.6.0)
+    // -------------------------------------------------------------------------
+
+    public function testOrderOfAnExcludedCustomerGroupIsNotForwarded(): void
+    {
+        if (!$this->shopwareTypesAvailable()) {
+            $this->markTestSkipped('Shopware state machine types not installed.');
+        }
+
+        $this->makeSubscriber();
+        $this->givenConfig('off', excludedGroups: [self::B2B_GROUP]);
+        $this->givenOrder([CustomerGroupExclusion::CUSTOM_FIELD_CUSTOMER_GROUP => self::B2B_GROUP]);
+
+        $this->failedEventRepository->expects(self::never())->method('create');
+        $this->logger->expects(self::never())->method('critical');
+        $this->logger->expects(self::once())->method('warning')->with(
+            self::stringContains('customer group excluded from tracking'),
+            ['order_number' => 'SW-10001'],
+        );
+
+        $this->subscriber->onOrderPaid($this->paidEvent());
+
+        self::assertSame(0, $this->requestCount, 'An excluded customer group must never reach the ingestion API');
+        self::assertArrayNotHasKey('AxitraceShopware6.runtime.recent_failure_count', $this->configSets, 'An exclusion is not a failure');
+    }
+
+    public function testOrderWithoutARecordedGroupIsJudgedByTheCustomersCurrentGroup(): void
+    {
+        if (!$this->shopwareTypesAvailable()) {
+            $this->markTestSkipped('Shopware state machine types not installed.');
+        }
+
+        $this->makeSubscriber();
+        $this->givenConfig('off', excludedGroups: [self::B2B_GROUP]);
+        $this->givenOrder([], self::B2B_GROUP);
+
+        $this->orderRepository->expects(self::once())->method('search')->with(
+            self::callback(static fn (Criteria $criteria): bool => $criteria->getAssociation('orderCustomer')->hasAssociation('customer')),
+            self::isInstanceOf(Context::class),
+        );
+
+        $this->subscriber->onOrderPaid($this->paidEvent());
+
+        self::assertSame(0, $this->requestCount, 'An admin or API order of a B2B customer must not be forwarded either');
+    }
+
+    public function testOrderOfAnotherCustomerGroupIsStillForwarded(): void
+    {
+        if (!$this->shopwareTypesAvailable()) {
+            $this->markTestSkipped('Shopware state machine types not installed.');
+        }
+
+        $this->makeSubscriber();
+        $this->givenConfig('off', excludedGroups: [self::B2B_GROUP]);
+        $this->givenOrder([CustomerGroupExclusion::CUSTOM_FIELD_CUSTOMER_GROUP => self::RETAIL_GROUP], self::B2B_GROUP);
+
+        $this->subscriber->onOrderPaid($this->paidEvent());
+
+        self::assertSame(1, $this->requestCount, 'The group at placement counts, not the one the customer was moved to later');
     }
 
     // -------------------------------------------------------------------------

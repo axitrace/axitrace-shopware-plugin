@@ -7,6 +7,7 @@ namespace AxitraceShopware6\Tests\Unit\Storefront;
 use AxitraceShopware6\Config\AxitraceCrypto;
 use AxitraceShopware6\Config\PluginConfig;
 use AxitraceShopware6\Consent\ConsentGate;
+use AxitraceShopware6\Exclusion\CustomerGroupExclusion;
 use AxitraceShopware6\Normalizer\PinterestCatalogIdResolver;
 use AxitraceShopware6\Storefront\StorefrontContextController;
 use AxitraceShopware6\Storefront\StorefrontContextProvider;
@@ -55,6 +56,7 @@ final class StorefrontContextControllerTest extends TestCase
 
         self::assertNotNull($routes->get('frontend.axitrace.storefront-context'));
         self::assertSame('/axitrace/storefront-context', $routes->get('frontend.axitrace.storefront-context')?->getPath());
+        self::assertSame('/axitrace/tracking-status', $routes->get('frontend.axitrace.tracking-status')?->getPath());
     }
 
     public function testResponseIsPrivateNoStoreAndCustomerRequiresHeaderPlusCookie(): void
@@ -119,14 +121,72 @@ final class StorefrontContextControllerTest extends TestCase
         }
     }
 
-    /** @return array{StorefrontContextController, SalesChannelContext} */
-    private function controller(bool $enabled, string $mode = "off"): array
+    public function testTrackingStatusRouteIsAnUncachedStorefrontRoute(): void
+    {
+        $methodRoute = (new \ReflectionMethod(StorefrontContextController::class, 'trackingStatus'))->getAttributes(Route::class)[0]->newInstance();
+
+        self::assertSame('/axitrace/tracking-status', $methodRoute->getPath());
+        self::assertSame('frontend.axitrace.tracking-status', $methodRoute->getName());
+        self::assertTrue($methodRoute->getDefaults()[\Shopware\Core\PlatformRequest::ATTRIBUTE_NO_STORE]);
+    }
+
+    public function testCustomerOfAnExcludedGroupMayNotBeTracked(): void
+    {
+        [$controller, $context] = $this->controller(true, excludedGroups: [strtoupper(self::B2B_GROUP)], customerGroupId: self::B2B_GROUP);
+        $response = $controller->trackingStatus($this->sameOriginRequest('/axitrace/tracking-status'), $context);
+
+        self::assertSame(['track' => false], $this->json($response));
+        self::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+        self::assertStringContainsString('private', (string) $response->headers->get('Cache-Control'));
+    }
+
+    public function testCustomerOfAnotherGroupAndAnonymousVisitorsAreTracked(): void
+    {
+        [$controller, $context] = $this->controller(true, excludedGroups: [self::B2B_GROUP], customerGroupId: self::RETAIL_GROUP);
+        self::assertSame(['track' => true], $this->json($controller->trackingStatus($this->sameOriginRequest('/axitrace/tracking-status'), $context)));
+
+        [$controller, $context] = $this->controller(true, excludedGroups: [self::B2B_GROUP], customerGroupId: null);
+        self::assertSame(['track' => true], $this->json($controller->trackingStatus($this->sameOriginRequest('/axitrace/tracking-status'), $context)), 'an anonymous visitor has no group');
+
+        [$controller, $context] = $this->controller(true, customerGroupId: self::B2B_GROUP);
+        self::assertSame(['track' => true], $this->json($controller->trackingStatus($this->sameOriginRequest('/axitrace/tracking-status'), $context)), 'nothing is excluded by default');
+    }
+
+    public function testTrackingStatusRejectsDisabledPluginAndCrossOriginRequests(): void
+    {
+        [$disabled, $context] = $this->controller(false, excludedGroups: [self::B2B_GROUP], customerGroupId: self::B2B_GROUP);
+        self::assertSame(404, $disabled->trackingStatus(Request::create('https://shop.example/axitrace/tracking-status'), $context)->getStatusCode());
+
+        [$enabled, $context] = $this->controller(true, excludedGroups: [self::B2B_GROUP], customerGroupId: self::B2B_GROUP);
+        $request = Request::create('https://shop.example/axitrace/tracking-status');
+        $request->headers->set('Sec-Fetch-Site', 'cross-site');
+        self::assertSame(403, $enabled->trackingStatus($request, $context)->getStatusCode());
+    }
+
+    private const B2B_GROUP = '0191d3d2c1ce7a2ba9d1f2f2c8b1ab2b';
+    private const RETAIL_GROUP = 'cfbd5018d38d41d8adca10d94fc8bdd6';
+
+    private function sameOriginRequest(string $path): Request
+    {
+        $request = Request::create('https://shop.example' . $path);
+        $request->headers->set('Origin', 'https://shop.example');
+
+        return $request;
+    }
+
+    /**
+     * @param list<string> $excludedGroups
+     *
+     * @return array{StorefrontContextController, SalesChannelContext}
+     */
+    private function controller(bool $enabled, string $mode = "off", array $excludedGroups = [], ?string $customerGroupId = self::RETAIL_GROUP): array
     {
         $configService = $this->createMock(SystemConfigService::class);
         $configService->method('get')->willReturnCallback(static fn (string $key) => match ($key) {
             'AxitraceShopware6.config.enabled' => $enabled,
             'AxitraceShopware6.config.consentMode' => $mode,
             'AxitraceShopware6.config.publicKey' => $enabled ? 'pk_test_abcdef1234567890abcdef1234567890' : '',
+            'AxitraceShopware6.config.excludedCustomerGroups' => $excludedGroups,
             default => null,
         });
         $logger = $this->createStub(LoggerInterface::class);
@@ -151,13 +211,16 @@ final class StorefrontContextControllerTest extends TestCase
         $state->setShortCode('CH-BE');
         $address->setCountryState($state);
         $customer->setActiveBillingAddress($address);
+        if ($customerGroupId !== null) {
+            $customer->setGroupId($customerGroupId);
+        }
         $context = $this->createMock(SalesChannelContext::class);
         $context->method('getSalesChannelId')->willReturn('sales-channel');
         $context->method('getToken')->willReturn('token');
         $context->method('getCurrency')->willReturn($currency);
-        $context->method('getCustomer')->willReturn($customer);
+        $context->method('getCustomer')->willReturn($customerGroupId !== null ? $customer : null);
 
-        return [new StorefrontContextController($provider, $config, new ConsentGate()), $context];
+        return [new StorefrontContextController($provider, $config, new ConsentGate(), new CustomerGroupExclusion($config)), $context];
     }
 
     /** @return array<string, mixed> */

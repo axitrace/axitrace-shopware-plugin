@@ -7,6 +7,7 @@ namespace AxitraceShopware6\Subscriber;
 use AxitraceShopware6\Config\PluginConfig;
 use AxitraceShopware6\Consent\ConsentGate;
 use AxitraceShopware6\Exception\IngestionUnreachableException;
+use AxitraceShopware6\Exclusion\CustomerGroupExclusion;
 use AxitraceShopware6\Exception\SecretKeyRejectedException;
 use AxitraceShopware6\HttpClient\IngestionApiClient;
 use AxitraceShopware6\Normalizer\RefundEventNormalizer;
@@ -35,8 +36,9 @@ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
  *
  * Sent only when the merchant configured the AxiTrace secret key (the refund
  * endpoint accepts nothing else), the plugin is enabled for the Sales Channel,
- * and the purchase itself would have been forwarded under the consent mode -
- * a refund for an order AxiTrace never received would have nothing to reduce.
+ * and the purchase itself would have been forwarded under the consent mode and
+ * the excluded customer groups - a refund for an order AxiTrace never received
+ * would have nothing to reduce.
  *
  * Like the purchase subscriber this MUST NEVER throw into the state machine:
  * every throwable is caught and logged. An unreachable API queues the body
@@ -52,6 +54,7 @@ final class OrderRefundSubscriber implements EventSubscriberInterface
     public function __construct(
         private readonly PluginConfig $config,
         private readonly ConsentGate $consentGate,
+        private readonly CustomerGroupExclusion $customerGroupExclusion,
         private readonly IngestionApiClient $ingestionClient,
         private readonly RefundEventNormalizer $normalizer,
         private readonly EntityRepository $orderRepository,
@@ -124,6 +127,7 @@ final class OrderRefundSubscriber implements EventSubscriberInterface
     {
         $criteria->addAssociation('currency');
         $criteria->addAssociation('lineItems');
+        $criteria->addAssociation('orderCustomer.customer');
         $criteria->addAssociation('transactions.stateMachineState');
         $criteria->addAssociation('transactions.captures.refunds.stateMachineState');
         $criteria->addAssociation('transactions.captures.refunds.positions');
@@ -149,6 +153,11 @@ final class OrderRefundSubscriber implements EventSubscriberInterface
 
         $decision = $order->getCustomFields()[OrderPlacedSubscriber::CUSTOM_FIELD_CONSENT] ?? null;
         if (!$this->consentGate->allowsServerTracking($this->config->getConsentMode($salesChannelId), is_string($decision) ? $decision : null)) {
+            return;
+        }
+
+        // The purchase of an excluded customer group was never sent: nothing to reduce.
+        if ($this->customerGroupExclusion->excludesOrder($order)) {
             return;
         }
 

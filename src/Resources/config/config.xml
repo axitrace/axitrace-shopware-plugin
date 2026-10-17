@@ -133,4 +133,18 @@
             <helpText lang="de-DE">Das Cookie, das Ihr Consent-Tool setzt, sobald der Besucher Marketing/Statistik akzeptiert. Leer lassen, um Shopwares eigene AxiTrace-Cookie-Gruppe zu verwenden (axitrace-enabled). Bei einem Drittanbieter-Banner (Acris, Usercentrics, Cookiebot, CCM19) geben Sie den Cookie-Namen des Tools ein — oder lassen Sie das Feld leer und lassen das Banner window.axitraceConsent.grant() aufrufen, wenn der Besucher akzeptiert.</helpText>
         </input-field>
     </card>
+
+    <card>
+        <title>Excluded customers</title>
+        <title lang="de-DE">Ausgeschlossene Kunden</title>
+
+        <component name="sw-entity-multi-id-select">
+            <name>excludedCustomerGroups</name>
+            <entity>customer_group</entity>
+            <label>Customer groups excluded from tracking</label>
+            <label lang="de-DE">Vom Tracking ausgeschlossene Kundengruppen</label>
+            <helpText>Customers of these groups (for example your B2B customers) are not tracked at all: their orders and refunds are not sent to AxiTrace, so they never reach your AxiTrace reports or any connected ad platform (Meta, Google Ads, GA4 and the others), and while they are logged in the AxiTrace script does not start on their pages. The group the customer had when the order was placed counts; orders created in the admin or via the API are judged by the customer's current group. Before login a visitor cannot be recognised, so pages viewed before logging in are collected as an anonymous visit. Leave empty to track every customer.</helpText>
+            <helpText lang="de-DE">Kunden dieser Gruppen (zum Beispiel Ihre B2B-Kunden) werden überhaupt nicht getrackt: Ihre Bestellungen und Erstattungen werden nicht an AxiTrace gesendet, erscheinen also weder in Ihren AxiTrace-Berichten noch bei einer verbundenen Werbeplattform (Meta, Google Ads, GA4 und weitere), und solange sie angemeldet sind, startet das AxiTrace-Skript auf ihren Seiten nicht. Maßgeblich ist die Gruppe des Kunden bei Aufgabe der Bestellung; im Admin oder per API angelegte Bestellungen werden nach der aktuellen Gruppe des Kunden beurteilt. Vor der Anmeldung ist ein Besucher nicht erkennbar, Seiten vor dem Login werden daher als anonymer Besuch erfasst. Leer lassen, um alle Kunden zu tracken.</helpText>
+        </component>
+    </card>
 </config>

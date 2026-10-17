@@ -38,9 +38,11 @@
                 });
             </script>
         {% endif %}
-        {% if axitraceConfig.consent.mode == 'off' %}
+        {% if axitraceConfig.consent.mode == 'off' and axitraceConfig.trackingStatusUrl is not defined %}
             {# Gating off: emit the loader tag statically, preserving the pre-0.2.0
-               load timing. It must NOT be emitted on the strength of a server-side
+               load timing. Not with excluded customer groups: the bootstrap must
+               first ask whether this visitor may be tracked at all, then injects
+               this same tag itself. It must NOT be emitted on the strength of a server-side
                consent check - Shopware's HTTP cache does not key on the consent
                cookie, so a page cached for a consenting visitor would ship this tag
                (and thus a request carrying the visitor's IP) to someone who declined.
@@ -111,6 +113,7 @@
 
                 var booted = false;
                 var revoked = false;
+                var excluded = false;
                 var consentTimer = null;
 
                 function waitForSdk() {
@@ -260,6 +263,40 @@
                     booted = true;
                     stopWaiting();
 
+                    if (!config.trackingStatusUrl) {
+                        injectAndInit();
+                        return;
+                    }
+
+                    // Customer groups excluded from tracking: ask the uncached endpoint
+                    // whether the logged-in customer belongs to one BEFORE the SDK loads,
+                    // so an excluded customer sends nothing at all. The page itself cannot
+                    // say: its HTML is shared across visitors by Shopware's HTTP cache.
+                    // Fail-open: if the question cannot be answered the SDK starts as it
+                    // would without the setting - the purchase of an excluded customer is
+                    // still held back server-side, where the order's group is known.
+                    try {
+                        window.fetch(config.trackingStatusUrl, {
+                            method: 'GET',
+                            credentials: 'same-origin',
+                            headers: { Accept: 'application/json' }
+                        }).then(function (response) {
+                            return response.ok ? response.json() : null;
+                        }).then(function (status) {
+                            if (status && status.track === false) {
+                                excluded = true;
+                                return;
+                            }
+                            injectAndInit();
+                        }, function () {
+                            injectAndInit();
+                        });
+                    } catch (e) {
+                        injectAndInit();
+                    }
+                }
+
+                function injectAndInit() {
                     try {
                         if (!document.querySelector('script[data-axitrace-sdk]') && config.sdkUrl) {
                             var script = document.createElement('script');
@@ -281,7 +318,7 @@
                 window.axitraceConsent = window.axitraceConsent || {
                     grant: function () { grantConsent(); },
                     revoke: function () { revokeConsent(); },
-                    isGranted: function () { return booted && !revoked; }
+                    isGranted: function () { return booted && !revoked && !excluded; }
                 };
 
                 // In a gating mode the update listener is registered whether or not the

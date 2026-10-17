@@ -102,8 +102,11 @@ bin/console cache:clear
    AxiTrace rejects the key, purchases are still sent, without costs, and the
    rejection is logged critical. Leave it empty and the plugin sends neither
    costs nor refunds.
-9. **Save** the configuration.
-10. **Place a test order** in your storefront. Within 1-2 minutes the AxiTrace
+9. *(Optional)* Select **Customer groups excluded from tracking**, for example
+   your B2B customer group. Customers of those groups are not tracked at all -
+   see [Excluding customer groups](#excluding-customer-groups-eg-b2b).
+10. **Save** the configuration.
+11. **Place a test order** in your storefront. Within 1-2 minutes the AxiTrace
    dashboard should show the order on the events feed.
 
 ---
@@ -232,6 +235,37 @@ outside the storefront, use *Wait for consent - browser tracking only* instead.
 Third-party consent platforms (Cookiebot, Usercentrics, CCM19, …), the workspace-level
 forwarding policy, and how to verify a gate actually works are covered in
 [axitrace.com/docs/cookie-consent](https://axitrace.com/docs/cookie-consent).
+
+---
+
+## Excluding customer groups (e.g. B2B)
+
+*Configure -> Excluded customers -> Customer groups excluded from tracking*
+(per Sales Channel, plugin 0.6.0+). Customers of the selected groups are not
+tracked by AxiTrace at all:
+
+| Path | What happens for an excluded customer |
+|------|----------------------------------------|
+| Orders | The purchase is not sent to AxiTrace, so it never appears in AxiTrace and never reaches Meta, Google Ads, GA4 or any other connector. Logged at `warning` with the order number; never queued for a retry. |
+| Refunds and cancellations | Not sent (the purchase never was). |
+| Browsing while logged in | The storefront asks `/axitrace/tracking-status` before it loads the AxiTrace SDK and does not load it for an excluded customer: no page views, product views, add to cart or checkout events. |
+
+Rules:
+
+- The group the customer had **when the order was placed** counts (stored on
+  the order as the `axitrace_customer_group_id` custom field). Orders without it
+  (placed before 0.6.0, created in the admin or via the API) are judged by the
+  customer's **current** group.
+- Only a **logged-in** customer has a group. Pages viewed before logging in are
+  collected as an anonymous visit, even when you excluded the Sales Channel's
+  default group. If B2B buyers must be invisible from their very first request,
+  run the B2B shop on its own Sales Channel or domain without the plugin.
+- Nothing is excluded until you select a group, and the check needs no other
+  setting. With groups selected the storefront makes one small uncached
+  same-origin request per page before the SDK loads; if it fails the SDK loads
+  as usual (the order of an excluded customer is still held back server-side).
+- Tags you run outside AxiTrace (your own Google Tag Manager container, a Meta
+  pixel added by another plugin) are not affected and need their own exclusion.
 
 ---
 

@@ -8,6 +8,7 @@ use AxitraceShopware6\Config\PluginConfig;
 use AxitraceShopware6\Consent\ConsentGate;
 use AxitraceShopware6\EventId\UuidV5Generator;
 use AxitraceShopware6\Exception\IngestionUnreachableException;
+use AxitraceShopware6\Exclusion\CustomerGroupExclusion;
 use AxitraceShopware6\HttpClient\IngestionApiClient;
 use AxitraceShopware6\Normalizer\OrderEventNormalizer;
 use AxitraceShopware6\ScheduledTask\FailedEventQueue;
@@ -44,6 +45,7 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
     public function __construct(
         private readonly PluginConfig $config,
         private readonly ConsentGate $consentGate,
+        private readonly CustomerGroupExclusion $customerGroupExclusion,
         private readonly IngestionApiClient $ingestionClient,
         private readonly OrderEventNormalizer $normalizer,
         private readonly UuidV5Generator $uuidGenerator,
@@ -89,6 +91,9 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
         $orderCriteria->addAssociation('billingAddress.country');
         $orderCriteria->addAssociation('billingAddress.countryState');
         $orderCriteria->addAssociation('orderCustomer');
+        // The customer's current group: orders without the group recorded at
+        // placement (older orders, admin and API orders) are judged by it.
+        $orderCriteria->addAssociation('orderCustomer.customer');
         $orderCriteria->addAssociation('lineItems.product.manufacturer');
         $orderCriteria->addAssociation('lineItems.product.categories');
         // Purchase prices are inherited from the parent product when a variant has none.
@@ -113,6 +118,17 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
         $publicKey = $this->config->getPublicKey($salesChannelId);
         if ($publicKey === '') {
             $this->logger->critical('AxiTrace: public key not configured for sales channel ' . $salesChannelId);
+            return;
+        }
+
+        // Customer groups excluded from tracking (typically B2B): the order reaches
+        // neither AxiTrace nor any connector. An expected outcome of the merchant's
+        // setting, so warning, no PII, and never queued for a retry.
+        if ($this->customerGroupExclusion->excludesOrder($order)) {
+            $this->logger->warning('AxiTrace: purchase not forwarded - customer group excluded from tracking', [
+                'order_number' => (string) $order->getOrderNumber(),
+            ]);
+
             return;
         }
 
