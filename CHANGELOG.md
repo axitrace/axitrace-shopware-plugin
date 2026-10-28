@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Purchases report the installed plugin version (`pluginVersion`); 0.6.1 and 0.6.2 still reported 0.6.0.
 - The public key help text no longer says the key is stored encrypted: Shopware saves plugin settings as entered.
 
+## [0.6.2] - 2026-10-28
 
 ### Changed
 - Service and route configuration moved from `services.xml` / `routes.xml` to `services.yaml` / `routes.yaml` (Symfony deprecated the XML format). The service definitions are unchanged; Shopware 6.6.8 and newer load both formats.
