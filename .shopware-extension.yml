@@ -19,3 +19,7 @@ validation:
       path: src/Subscriber/OrderPaidSubscriber.php
     - identifier: phpstan/method.deprecatedClass
       path: src/Subscriber/OrderRefundSubscriber.php
+    # OrderEntity::getTaxStatus() is non-nullable on 6.6.8 and nullable on 6.7,
+    # so the price fallback after ?? is required on 6.7 and harmless on 6.6.
+    - identifier: phpstan/nullCoalesce.expr
+      path: src/Normalizer/OrderEventNormalizer.php

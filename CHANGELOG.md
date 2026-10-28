@@ -5,7 +5,14 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.2] - 2026-10-28
+## [0.6.3] - 2026-10-28
+
+### Fixed
+- **The retry queue resends undelivered events again.** Shopware reads an `updated_at` column on every entity, but the `axitrace_failed_event_log` table was created without it, so every run of the retry task failed with "Unknown column" and a purchase or refund that could not be delivered on the first attempt was never resent. A new migration adds the column; rows already queued are resent after the update.
+- **The retry task runs every 15 minutes.** Its handler now extends Shopware's `ScheduledTaskHandler`, which schedules the task again after each run. Before, the task stayed `queued` after its first run and Shopware only picked it up again after 12 hours.
+- Purchases report the installed plugin version (`pluginVersion`); 0.6.1 and 0.6.2 still reported 0.6.0.
+- The public key help text no longer says the key is stored encrypted: Shopware saves plugin settings as entered.
+
 
 ### Changed
 - Service and route configuration moved from `services.xml` / `routes.xml` to `services.yaml` / `routes.yaml` (Symfony deprecated the XML format). The service definitions are unchanged; Shopware 6.6.8 and newer load both formats.

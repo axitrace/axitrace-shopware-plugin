@@ -52,6 +52,7 @@ services:
 
     AxitraceShopware6\ScheduledTask\AxitraceRetryFailedEventsHandler:
         arguments:
+            - '@scheduled_task.repository'
             - '@axitrace_failed_event_log.repository'
             - '@AxitraceShopware6\HttpClient\IngestionApiClient'
             - '@logger'

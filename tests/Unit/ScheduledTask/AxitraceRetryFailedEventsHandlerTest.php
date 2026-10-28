@@ -17,6 +17,12 @@ use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
+use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityWrittenContainerEvent;
+use Shopware\Core\Framework\MessageQueue\ScheduledTask\ScheduledTaskCollection;
+use Shopware\Core\Framework\MessageQueue\ScheduledTask\ScheduledTaskDefinition;
+use Shopware\Core\Framework\MessageQueue\ScheduledTask\ScheduledTaskEntity;
+use Shopware\Core\Framework\MessageQueue\ScheduledTask\ScheduledTaskHandler;
+use AxitraceShopware6\ScheduledTask\AxitraceRetryFailedEventsTask;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\AggregationResult\AggregationResultCollection;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\EntitySearchResult;
@@ -28,6 +34,7 @@ use Symfony\Component\HttpClient\Response\MockResponse;
 
 final class AxitraceRetryFailedEventsHandlerTest extends TestCase
 {
+    private EntityRepository&MockObject $scheduledTaskRepository;
     private EntityRepository&MockObject $failedEventRepository;
     private IngestionApiClient $ingestionClient;
     private LoggerInterface&MockObject $logger;
@@ -38,6 +45,7 @@ final class AxitraceRetryFailedEventsHandlerTest extends TestCase
 
     protected function setUp(): void
     {
+        $this->scheduledTaskRepository = $this->createMock(EntityRepository::class);
         $this->failedEventRepository = $this->createMock(EntityRepository::class);
         $this->logger                = $this->createMock(LoggerInterface::class);
         $this->requestCount          = 0;
@@ -52,6 +60,7 @@ final class AxitraceRetryFailedEventsHandlerTest extends TestCase
         $this->ingestionClient = new IngestionApiClient($http, $this->logger, null);
 
         $this->handler = new AxitraceRetryFailedEventsHandler(
+            $this->scheduledTaskRepository,
             $this->failedEventRepository,
             $this->ingestionClient,
             $this->logger,
@@ -219,6 +228,7 @@ final class AxitraceRetryFailedEventsHandlerTest extends TestCase
         );
 
         $handler = new AxitraceRetryFailedEventsHandler(
+            $this->scheduledTaskRepository,
             $this->failedEventRepository,
             new IngestionApiClient($http, $this->logger, null),
             $this->logger,
@@ -325,6 +335,53 @@ final class AxitraceRetryFailedEventsHandlerTest extends TestCase
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * The scheduler marks a task `queued` before dispatching it; only a
+     * ScheduledTaskHandler puts it back to `scheduled` with its next execution
+     * time. A plain handler left the task `queued`, and Shopware only requeues
+     * a task stuck there after 12 hours, so the queue was retried twice a day
+     * instead of every 15 minutes.
+     */
+    public function testHandlingTheScheduledTaskReschedulesIt(): void
+    {
+        $this->makeClient(new MockHttpClient());
+        self::assertInstanceOf(ScheduledTaskHandler::class, $this->handler);
+
+        $taskEntity = new ScheduledTaskEntity();
+        $taskEntity->setId('task-id');
+        $taskEntity->setStatus(ScheduledTaskDefinition::STATUS_QUEUED);
+        $taskEntity->setRunInterval(AxitraceRetryFailedEventsTask::getDefaultInterval());
+        $taskEntity->setNextExecutionTime(new \DateTimeImmutable('-1 minute'));
+        $this->scheduledTaskRepository->method('search')->willReturn(new EntitySearchResult(
+            'scheduled_task',
+            1,
+            new ScheduledTaskCollection([$taskEntity]),
+            null,
+            new Criteria(),
+            Context::createDefaultContext(),
+        ));
+        $this->failedEventRepository->method('search')->willReturn($this->buildSearchResult(new AxitraceFailedEventCollection()));
+
+        $statuses = [];
+        $this->scheduledTaskRepository->method('update')->willReturnCallback(
+            static function (array $data) use (&$statuses): EntityWrittenContainerEvent {
+                foreach ($data as $row) {
+                    if (isset($row['status'])) {
+                        $statuses[] = $row['status'];
+                    }
+                }
+
+                return EntityWrittenContainerEvent::createWithWrittenEvents([], Context::createDefaultContext(), []);
+            },
+        );
+
+        $task = new AxitraceRetryFailedEventsTask();
+        $task->setTaskId('task-id');
+        ($this->handler)($task);
+
+        self::assertSame(ScheduledTaskDefinition::STATUS_SCHEDULED, end($statuses), 'The task must be scheduled again after it ran.');
+    }
 
     private function buildEntity(string $eventId, string $payload, int $attempts): AxitraceFailedEventEntity
     {

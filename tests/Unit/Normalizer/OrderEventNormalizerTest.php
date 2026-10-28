@@ -400,7 +400,10 @@ final class OrderEventNormalizerTest extends TestCase
         self::assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', $payload['timestamp']);
         self::assertSame('', $payload['ip']);
         self::assertSame('', $payload['userAgent']);
-        self::assertIsString($payload['pluginVersion']);
+        // The version AxiTrace shows per event must be the version installed:
+        // 0.6.1 and 0.6.2 shipped while still reporting 0.6.0.
+        $composer = json_decode((string) file_get_contents(__DIR__ . '/../../../composer.json'), true, 8, JSON_THROW_ON_ERROR);
+        self::assertSame($composer['version'], $payload['pluginVersion']);
         self::assertIsString($payload['sdkVersion']);
         self::assertSame('Berlin', $payload['billingCity']);
         self::assertSame('DE', $payload['billingCountry']);

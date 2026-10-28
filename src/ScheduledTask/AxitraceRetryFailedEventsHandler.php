@@ -15,23 +15,27 @@ use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\MultiFilter;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\RangeFilter;
+use Shopware\Core\Framework\MessageQueue\ScheduledTask\ScheduledTaskHandler;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 
+/**
+ * Extends ScheduledTaskHandler so Shopware marks the task running and schedules
+ * it again after each run. The scheduler sets a task `queued` before it
+ * dispatches it, and only puts back a task stuck there after 12 hours.
+ */
 #[AsMessageHandler(handles: AxitraceRetryFailedEventsTask::class)]
-final class AxitraceRetryFailedEventsHandler
+final class AxitraceRetryFailedEventsHandler extends ScheduledTaskHandler
 {
     public function __construct(
+        EntityRepository $scheduledTaskRepository,
         private readonly EntityRepository $failedEventRepository,
         private readonly IngestionApiClient $ingestionClient,
         private readonly LoggerInterface $logger,
         // Optional so rows can still be resent when the handler is built without
         // config (tests, pre-0.5.0 wiring): such a resend carries no secret key.
         private readonly ?PluginConfig $config = null,
-    ) {}
-
-    public function __invoke(AxitraceRetryFailedEventsTask $task): void
-    {
-        $this->run();
+    ) {
+        parent::__construct($scheduledTaskRepository, $logger);
     }
 
     public function run(): void

@@ -18,8 +18,8 @@
             <name>publicKey</name>
             <label>AxiTrace Public Key (pk_live_...)</label>
             <label lang="de-DE">AxiTrace Public Key (pk_live_...)</label>
-            <helpText>Find this in axitrace.com → Workspace → Keys. Stored encrypted at rest.</helpText>
-            <helpText lang="de-DE">Zu finden unter axitrace.com → Workspace → Keys. Wird verschlüsselt gespeichert.</helpText>
+            <helpText>Find this in axitrace.com → Workspace → Keys.</helpText>
+            <helpText lang="de-DE">Zu finden unter axitrace.com → Workspace → Keys.</helpText>
         </input-field>
 
         <input-field type="password">
