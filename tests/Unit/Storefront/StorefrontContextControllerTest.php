@@ -29,7 +29,7 @@ use Symfony\Component\Config\Loader\DelegatingLoader;
 use Symfony\Component\Config\Loader\LoaderResolver;
 use Symfony\Bundle\FrameworkBundle\Routing\AttributeRouteControllerLoader;
 use Symfony\Component\Routing\Loader\AttributeFileLoader;
-use Symfony\Component\Routing\Loader\XmlFileLoader;
+use Symfony\Component\Routing\Loader\YamlFileLoader;
 
 final class StorefrontContextControllerTest extends TestCase
 {
@@ -49,10 +49,10 @@ final class StorefrontContextControllerTest extends TestCase
         self::assertIsString($configDir);
         $locator = new FileLocator([$configDir]);
         $resolver = new LoaderResolver([
-            new XmlFileLoader($locator),
+            new YamlFileLoader($locator),
             new AttributeFileLoader($locator, new AttributeRouteControllerLoader()),
         ]);
-        $routes = (new DelegatingLoader($resolver))->load('routes.xml');
+        $routes = (new DelegatingLoader($resolver))->load('routes.yaml');
 
         self::assertNotNull($routes->get('frontend.axitrace.storefront-context'));
         self::assertSame('/axitrace/storefront-context', $routes->get('frontend.axitrace.storefront-context')?->getPath());

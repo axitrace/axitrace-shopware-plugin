@@ -90,7 +90,7 @@ final class OrderEventNormalizer
         ?PurchaseCostResolver $costResolver = null,
     ) {
         // Optional so the class stays constructible with `new OrderEventNormalizer()`
-        // (services.xml, tests) - the resolver is a pure, stateless helper.
+        // (services.yaml, tests) - the resolver is a pure, stateless helper.
         $this->valueResolver = $valueResolver ?? new ConversionValueResolver();
         $this->pinterestIdResolver = $pinterestIdResolver ?? new PinterestCatalogIdResolver();
         $this->costResolver = $costResolver ?? new PurchaseCostResolver();

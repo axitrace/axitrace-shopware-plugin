@@ -5,6 +5,12 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-10-28
+
+### Changed
+- Service and route configuration moved from `services.xml` / `routes.xml` to `services.yaml` / `routes.yaml` (Symfony deprecated the XML format). The service definitions are unchanged; Shopware 6.6.8 and newer load both formats.
+- README: the ZIP download link points to the published file name.
+
 ## [0.6.1] - 2026-10-28
 
 ### Changed

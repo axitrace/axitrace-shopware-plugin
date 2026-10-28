@@ -19,7 +19,7 @@ final class AxitraceShopware6 extends Plugin
 {
     public function install(InstallContext $installContext): void
     {
-        // Schema is managed via src/Resources/config/services.xml and
+        // Schema is managed via src/Resources/config/services.yaml and
         // src/Migration/ migrations — nothing to do manually on install.
         parent::install($installContext);
     }

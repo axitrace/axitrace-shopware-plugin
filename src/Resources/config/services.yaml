@@ -1,0 +1,125 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/symfony/dependency-injection/7.4/Loader/schema/services.schema.json
+services:
+    AxitraceShopware6\Config\AxitraceCrypto:
+        arguments:
+            - '%env(APP_SECRET)%'
+
+    AxitraceShopware6\Config\PluginConfig:
+        arguments:
+            - '@Shopware\Core\System\SystemConfig\SystemConfigService'
+            - '@AxitraceShopware6\Config\AxitraceCrypto'
+            - '@logger'
+
+    AxitraceShopware6\HttpClient\IngestionApiClient:
+        arguments:
+            - '@http_client'
+            - '@logger'
+            - '%env(default::AXITRACE_API_BASE_URL)%'
+
+    AxitraceShopware6\Consent\ConsentGate: ~
+
+    AxitraceShopware6\Exclusion\CustomerGroupExclusion:
+        arguments:
+            - '@AxitraceShopware6\Config\PluginConfig'
+
+    AxitraceShopware6\Subscriber\StorefrontSubscriber:
+        arguments:
+            - '@AxitraceShopware6\Config\PluginConfig'
+            - '@AxitraceShopware6\Normalizer\PinterestCatalogIdResolver'
+            - '@AxitraceShopware6\Exclusion\CustomerGroupExclusion'
+            - '@router'
+            - '@logger'
+        tags:
+            - kernel.event_subscriber
+
+    AxitraceShopware6\CookieConsent\AxiTraceCookieProvider:
+        decorates: Shopware\Storefront\Framework\Cookie\CookieProviderInterface
+        arguments:
+            - '@.inner'
+
+    AxitraceShopware6\Entity\AxitraceFailedEventDefinition:
+        tags:
+            - {name: shopware.entity.definition, entity: axitrace_failed_event_log}
+
+    AxitraceShopware6\ScheduledTask\AxitraceRetryFailedEventsTask:
+        tags:
+            - shopware.scheduled.task
+
+    AxitraceShopware6\ScheduledTask\FailedEventQueue:
+        arguments:
+            - '@axitrace_failed_event_log.repository'
+            - '@logger'
+
+    AxitraceShopware6\ScheduledTask\AxitraceRetryFailedEventsHandler:
+        arguments:
+            - '@axitrace_failed_event_log.repository'
+            - '@AxitraceShopware6\HttpClient\IngestionApiClient'
+            - '@logger'
+            - '@AxitraceShopware6\Config\PluginConfig'
+        tags:
+            - messenger.message_handler
+
+    AxitraceShopware6\EventId\UuidV5Generator: ~
+
+    AxitraceShopware6\Normalizer\OrderEventNormalizer: ~
+
+    AxitraceShopware6\Normalizer\PinterestCatalogIdResolver: ~
+
+    AxitraceShopware6\Normalizer\RefundEventNormalizer: ~
+
+    AxitraceShopware6\Storefront\StorefrontContextProvider:
+        arguments:
+            - '@Shopware\Core\Checkout\Cart\SalesChannel\CartService'
+            - '@sales_channel.product.repository'
+            - '@AxitraceShopware6\Config\PluginConfig'
+            - '@AxitraceShopware6\Normalizer\PinterestCatalogIdResolver'
+
+    AxitraceShopware6\Storefront\StorefrontContextController:
+        public: true
+        arguments:
+            - '@AxitraceShopware6\Storefront\StorefrontContextProvider'
+            - '@AxitraceShopware6\Config\PluginConfig'
+            - '@AxitraceShopware6\Consent\ConsentGate'
+            - '@AxitraceShopware6\Exclusion\CustomerGroupExclusion'
+        tags:
+            - controller.service_arguments
+
+    AxitraceShopware6\Subscriber\OrderPaidSubscriber:
+        arguments:
+            - '@AxitraceShopware6\Config\PluginConfig'
+            - '@AxitraceShopware6\Consent\ConsentGate'
+            - '@AxitraceShopware6\Exclusion\CustomerGroupExclusion'
+            - '@AxitraceShopware6\HttpClient\IngestionApiClient'
+            - '@AxitraceShopware6\Normalizer\OrderEventNormalizer'
+            - '@AxitraceShopware6\EventId\UuidV5Generator'
+            - '@order.repository'
+            - '@AxitraceShopware6\ScheduledTask\FailedEventQueue'
+            - '@logger'
+        tags:
+            - kernel.event_subscriber
+
+    AxitraceShopware6\Subscriber\OrderRefundSubscriber:
+        arguments:
+            - '@AxitraceShopware6\Config\PluginConfig'
+            - '@AxitraceShopware6\Consent\ConsentGate'
+            - '@AxitraceShopware6\Exclusion\CustomerGroupExclusion'
+            - '@AxitraceShopware6\HttpClient\IngestionApiClient'
+            - '@AxitraceShopware6\Normalizer\RefundEventNormalizer'
+            - '@order.repository'
+            - '@AxitraceShopware6\ScheduledTask\FailedEventQueue'
+            - '@logger'
+        tags:
+            - kernel.event_subscriber
+
+    AxitraceShopware6\ClickId\PersistedClickIdReader: ~
+
+    AxitraceShopware6\Subscriber\OrderPlacedSubscriber:
+        arguments:
+            - '@request_stack'
+            - '@order.repository'
+            - '@logger'
+            - '@AxitraceShopware6\Config\PluginConfig'
+            - '@AxitraceShopware6\Consent\ConsentGate'
+            - '@AxitraceShopware6\ClickId\PersistedClickIdReader'
+        tags:
+            - kernel.event_subscriber
