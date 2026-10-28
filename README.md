@@ -57,7 +57,7 @@ bin/console cache:clear
 ### ZIP (for hosting without Composer access)
 
 1. Download the latest ZIP from
-   [axitrace.com/downloads/axitrace-shopware6-plugin-latest.zip](https://axitrace.com/downloads/axitrace-shopware6-plugin-latest.zip).
+   [axitrace.com/downloads/axitrace-shopware-plugin-latest.zip](https://axitrace.com/downloads/axitrace-shopware-plugin-latest.zip).
 2. Extract the contents so that `AxitraceShopware6/` lives inside
    `custom/plugins/`.
 3. Run:
