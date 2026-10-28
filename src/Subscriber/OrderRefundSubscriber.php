@@ -133,7 +133,7 @@ final class OrderRefundSubscriber implements EventSubscriberInterface
         $criteria->addAssociation('transactions.captures.refunds.positions');
 
         /** @var OrderEntity|null $order */
-        $order = $this->orderRepository->search($criteria, $context)->first();
+        $order = $this->orderRepository->search($criteria, $context)->getEntities()->first();
         if ($order === null) {
             $this->logger->critical('AxiTrace: order not found for refund (' . $trigger . ')');
 

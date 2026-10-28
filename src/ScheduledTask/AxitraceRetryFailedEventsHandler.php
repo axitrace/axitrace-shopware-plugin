@@ -36,7 +36,7 @@ final class AxitraceRetryFailedEventsHandler
 
     public function run(): void
     {
-        $context = Context::createDefaultContext();
+        $context = Context::createCLIContext();
 
         $criteria = (new Criteria())
             ->addFilter(new RangeFilter('attempts', ['lt' => 3]))
@@ -54,30 +54,42 @@ final class AxitraceRetryFailedEventsHandler
         /** @var AxitraceFailedEventCollection $rows */
         $rows = $this->failedEventRepository->search($criteria, $context)->getEntities();
 
+        // Repository writes are collected and flushed once after the loop, so a
+        // run costs one delete and one update instead of one write per row.
+        $deleteIds = [];
+        $updates   = [];
+
         foreach ($rows as $row) {
             try {
                 $stored = json_decode($row->getPayload(), true, 16, JSON_THROW_ON_ERROR);
                 $this->resend(is_array($stored) ? $stored : []);
                 // Success — delete the row from the retry queue
-                $this->failedEventRepository->delete([['id' => $row->getId()]], $context);
+                $deleteIds[] = ['id' => $row->getId()];
             } catch (SecretKeyRejectedException) {
                 // A refund whose key AxiTrace rejects can never be delivered with it
                 // (the client already logged the rejection at critical). It is not
                 // sent without a valid key, so the row is dropped rather than retried.
-                $this->failedEventRepository->delete([['id' => $row->getId()]], $context);
+                $deleteIds[] = ['id' => $row->getId()];
             } catch (\Throwable $e) {
-                $this->failedEventRepository->update([[
+                $updates[] = [
                     'id'             => $row->getId(),
                     'attempts'       => $row->getAttempts() + 1,
                     'lastAttemptAt'  => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
                     'lastError'      => substr($e->getMessage(), 0, 500),
-                ]], $context);
+                ];
 
                 $this->logger->critical(
                     'AxiTrace retry handler: event ' . $row->getEventId()
                     . ' failed (attempt ' . ($row->getAttempts() + 1) . '): ' . $e::class,
                 );
             }
+        }
+
+        if ($deleteIds !== []) {
+            $this->failedEventRepository->delete($deleteIds, $context);
+        }
+        if ($updates !== []) {
+            $this->failedEventRepository->update($updates, $context);
         }
     }
 

@@ -1,0 +1,21 @@
+# Validation exceptions for `shopware-cli extension validate` and the Shopware Store review.
+# Each one is a real compatibility requirement, not a silenced finding.
+validation:
+  ignore:
+    # The plugin supports Shopware 6.6.8 to 6.7.x. CookieGroupCollectEvent, the
+    # replacement for CookieProviderInterface, only exists from 6.7.3.0, and 6.7.x
+    # still converts legacy cookie providers, so the decorator is the one way to
+    # register the AxiTrace cookie group on every supported version.
+    - identifier: phpstan/class.implementsDeprecatedInterface
+      path: src/CookieConsent/AxiTraceCookieProvider.php
+    - identifier: phpstan/parameter.deprecatedInterface
+      path: src/CookieConsent/AxiTraceCookieProvider.php
+    # EntitySearchResult is flagged as a whole for its 6.8 class hierarchy change;
+    # any method call on a repository search result trips it. getEntities() and
+    # first() keep working on every supported version.
+    - identifier: phpstan/method.deprecatedClass
+      path: src/ScheduledTask/AxitraceRetryFailedEventsHandler.php
+    - identifier: phpstan/method.deprecatedClass
+      path: src/Subscriber/OrderPaidSubscriber.php
+    - identifier: phpstan/method.deprecatedClass
+      path: src/Subscriber/OrderRefundSubscriber.php

@@ -3,7 +3,7 @@
     "description": "AxiTrace server-side conversion tracking for Shopware 6",
     "type": "shopware-platform-plugin",
     "license": "MIT",
-    "version": "0.6.0",
+    "version": "0.6.1",
     "authors": [
         {
             "name": "AxiTrace",
@@ -41,13 +41,16 @@
             "de-DE": "AxiTrace Tracking"
         },
         "description": {
-            "en-GB": "Server-side conversion tracking for Facebook CAPI, TikTok Events API, Google Ads, GA4"
+            "en-GB": "Server-side conversion tracking for Shopware 6: sends purchases and refunds to Meta CAPI, Google Ads, GA4, TikTok and more, despite ad blockers and Safari limits.",
+            "de-DE": "Serverseitiges Conversion-Tracking für Shopware 6: sendet Käufe und Erstattungen an Meta CAPI, Google Ads, GA4, TikTok und mehr, trotz Adblockern und Safari-Limits."
         },
         "manufacturerLink": {
-            "en-GB": "https://axitrace.com"
+            "en-GB": "https://axitrace.com",
+            "de-DE": "https://axitrace.com"
         },
         "supportLink": {
-            "en-GB": "https://axitrace.com/docs/integrations/shopware"
+            "en-GB": "https://axitrace.com/docs/integrations/shopware",
+            "de-DE": "https://axitrace.com/docs/integrations/shopware"
         },
         "pluginIcon": "src/Resources/config/plugin.png"
     },

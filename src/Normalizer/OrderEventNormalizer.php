@@ -130,14 +130,13 @@ final class OrderEventNormalizer
         $orderCustomer  = $order->getOrderCustomer();
         $lineItems      = $order->getLineItems();
 
-        // Order amounts. Shopware always exposes the gross and net grand totals;
-        // the shipping breakdown lives on the CalculatedPrice, which is null on
-        // some programmatically created orders - treat that as free shipping.
+        // Order amounts. Shopware always exposes the gross and net grand totals
+        // and the shipping breakdown as a CalculatedPrice (never null).
         $amountTotal   = (float) $order->getAmountTotal();
         $amountNet     = (float) $order->getAmountNet();
         $shippingCosts = $order->getShippingCosts();
-        $shippingTax   = $shippingCosts !== null ? (float) $shippingCosts->getCalculatedTaxes()->getAmount() : 0.0;
-        $shippingGross = $shippingCosts !== null ? (float) $shippingCosts->getTotalPrice() : 0.0;
+        $shippingTax   = (float) $shippingCosts->getCalculatedTaxes()->getAmount();
+        $shippingGross = (float) $shippingCosts->getTotalPrice();
         // On a net-priced order (B2B tax status "net") Shopware's shipping total
         // is NET and the tax comes on top; on gross and tax-free orders the total
         // already is what the buyer paid. Reported shipping is always gross.

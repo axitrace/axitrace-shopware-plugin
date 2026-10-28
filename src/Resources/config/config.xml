@@ -10,8 +10,8 @@
             <label>Enabled</label>
             <label lang="de-DE">Aktiviert</label>
             <defaultValue>true</defaultValue>
-            <helpText>Master switch — when off, the plugin captures no events.</helpText>
-            <helpText lang="de-DE">Hauptschalter — wenn deaktiviert, erfasst das Plugin keine Ereignisse.</helpText>
+            <helpText>Master switch - when off, the plugin captures no events.</helpText>
+            <helpText lang="de-DE">Hauptschalter - wenn deaktiviert, erfasst das Plugin keine Ereignisse.</helpText>
         </input-field>
 
         <input-field type="password">
@@ -36,7 +36,7 @@
             <label lang="de-DE">Eigene Tracking-Domain (optional)</label>
             <placeholder>pixel.yourstore.com</placeholder>
             <helpText>Optional: enter your own subdomain (e.g. pixel.yourstore.com) that you have CNAME'd to stat.axitrace.com. The browser SDK will then load from your domain, placing cookies as first-party for improved tracking accuracy on iOS/Safari. Leave empty to use stat.axitrace.com (works for everyone).</helpText>
-            <helpText lang="de-DE">Optional: Geben Sie Ihre eigene Subdomain ein (z. B. pixel.ihrshop.de), die per CNAME auf stat.axitrace.com verweist. Das Browser-SDK wird dann von Ihrer Domain geladen, sodass Cookies als First-Party gesetzt werden — verbessert das Tracking auf iOS/Safari. Leer lassen, um stat.axitrace.com zu verwenden (funktioniert für alle).</helpText>
+            <helpText lang="de-DE">Optional: Geben Sie Ihre eigene Subdomain ein (z. B. pixel.ihrshop.de), die per CNAME auf stat.axitrace.com verweist. Das Browser-SDK wird dann von Ihrer Domain geladen, sodass Cookies als First-Party gesetzt werden - verbessert das Tracking auf iOS/Safari. Leer lassen, um stat.axitrace.com zu verwenden (funktioniert für alle).</helpText>
         </input-field>
 
         <input-field type="single-select">
@@ -62,8 +62,8 @@
                 </option>
                 <option>
                     <id>net_excl_shipping</id>
-                    <name>Product revenue only — excl. VAT and shipping</name>
-                    <name lang="de-DE">Nur Produktumsatz — ohne MwSt. und Versand</name>
+                    <name>Product revenue only - excl. VAT and shipping</name>
+                    <name lang="de-DE">Nur Produktumsatz - ohne MwSt. und Versand</name>
                 </option>
             </options>
             <helpText>Which amount is sent as the purchase value to Facebook, Google Ads, GA4, TikTok and Reddit. Applies to new orders only; the gross VAT and shipping amounts are always sent alongside for reference.</helpText>
@@ -111,17 +111,17 @@
                 </option>
                 <option>
                     <id>browser</id>
-                    <name>Wait for consent — browser tracking only</name>
-                    <name lang="de-DE">Auf Einwilligung warten — nur Browser-Tracking</name>
+                    <name>Wait for consent - browser tracking only</name>
+                    <name lang="de-DE">Auf Einwilligung warten - nur Browser-Tracking</name>
                 </option>
                 <option>
                     <id>all</id>
-                    <name>Wait for consent — browser tracking and server-side order events</name>
-                    <name lang="de-DE">Auf Einwilligung warten — Browser-Tracking und serverseitige Bestellereignisse</name>
+                    <name>Wait for consent - browser tracking and server-side order events</name>
+                    <name lang="de-DE">Auf Einwilligung warten - Browser-Tracking und serverseitige Bestellereignisse</name>
                 </option>
             </options>
-            <helpText>What each mode does: "Load immediately" (default) loads the browser SDK at once and always sends order events — the behaviour before v0.2.0. "Wait for consent — browser tracking only" holds the browser SDK until the visitor consents; order events are always sent. "Wait for consent — browser tracking and server-side order events" additionally forwards a purchase only when the shopper consented. Applies to orders placed after saving. In the strictest mode, orders created without a storefront session (admin orders, imports, API orders) carry no consent record and are therefore not forwarded — an order with no recorded consent decision is not treated as granted.</helpText>
-            <helpText lang="de-DE">Was die einzelnen Modi bewirken: "Sofort laden" (Standard) lädt das Browser-SDK sofort und sendet immer Bestellereignisse — das Verhalten vor v0.2.0. "Auf Einwilligung warten — nur Browser-Tracking" hält das Browser-SDK zurück, bis der Besucher eingewilligt hat; Bestellereignisse werden immer gesendet. "Auf Einwilligung warten — Browser-Tracking und serverseitige Bestellereignisse" leitet einen Kauf zusätzlich nur weiter, wenn der Kunde eingewilligt hat. Gilt für Bestellungen, die nach dem Speichern angelegt werden. Im strengsten Modus erhalten Bestellungen ohne Storefront-Sitzung (Admin-Bestellungen, Importe, API-Bestellungen) keinen Einwilligungseintrag und werden daher nicht weitergeleitet — eine Bestellung ohne gespeicherte Einwilligungsentscheidung gilt nicht als erteilt.</helpText>
+            <helpText>What each mode does: "Load immediately" (default) loads the browser SDK at once and always sends order events - the behaviour before v0.2.0. "Wait for consent - browser tracking only" holds the browser SDK until the visitor consents; order events are always sent. "Wait for consent - browser tracking and server-side order events" additionally forwards a purchase only when the shopper consented. Applies to orders placed after saving. In the strictest mode, orders created without a storefront session (admin orders, imports, API orders) carry no consent record and are therefore not forwarded - an order with no recorded consent decision is not treated as granted.</helpText>
+            <helpText lang="de-DE">Was die einzelnen Modi bewirken: "Sofort laden" (Standard) lädt das Browser-SDK sofort und sendet immer Bestellereignisse - das Verhalten vor v0.2.0. "Auf Einwilligung warten - nur Browser-Tracking" hält das Browser-SDK zurück, bis der Besucher eingewilligt hat; Bestellereignisse werden immer gesendet. "Auf Einwilligung warten - Browser-Tracking und serverseitige Bestellereignisse" leitet einen Kauf zusätzlich nur weiter, wenn der Kunde eingewilligt hat. Gilt für Bestellungen, die nach dem Speichern angelegt werden. Im strengsten Modus erhalten Bestellungen ohne Storefront-Sitzung (Admin-Bestellungen, Importe, API-Bestellungen) keinen Einwilligungseintrag und werden daher nicht weitergeleitet - eine Bestellung ohne gespeicherte Einwilligungsentscheidung gilt nicht als erteilt.</helpText>
         </input-field>
 
         <input-field type="text">
@@ -129,8 +129,8 @@
             <label>Consent cookie name</label>
             <label lang="de-DE">Consent-Cookie-Name</label>
             <placeholder>axitrace-enabled</placeholder>
-            <helpText>The cookie your consent tool sets once the visitor accepts marketing/statistics. Leave empty to use Shopware's own AxiTrace cookie group (axitrace-enabled). For a third-party banner (Acris, Usercentrics, Cookiebot, CCM19), enter that tool's cookie name — or leave this empty and have the banner call window.axitraceConsent.grant() when the visitor accepts.</helpText>
-            <helpText lang="de-DE">Das Cookie, das Ihr Consent-Tool setzt, sobald der Besucher Marketing/Statistik akzeptiert. Leer lassen, um Shopwares eigene AxiTrace-Cookie-Gruppe zu verwenden (axitrace-enabled). Bei einem Drittanbieter-Banner (Acris, Usercentrics, Cookiebot, CCM19) geben Sie den Cookie-Namen des Tools ein — oder lassen Sie das Feld leer und lassen das Banner window.axitraceConsent.grant() aufrufen, wenn der Besucher akzeptiert.</helpText>
+            <helpText>The cookie your consent tool sets once the visitor accepts marketing/statistics. Leave empty to use Shopware's own AxiTrace cookie group (axitrace-enabled). For a third-party banner (Acris, Usercentrics, Cookiebot, CCM19), enter that tool's cookie name - or leave this empty and have the banner call window.axitraceConsent.grant() when the visitor accepts.</helpText>
+            <helpText lang="de-DE">Das Cookie, das Ihr Consent-Tool setzt, sobald der Besucher Marketing/Statistik akzeptiert. Leer lassen, um Shopwares eigene AxiTrace-Cookie-Gruppe zu verwenden (axitrace-enabled). Bei einem Drittanbieter-Banner (Acris, Usercentrics, Cookiebot, CCM19) geben Sie den Cookie-Namen des Tools ein - oder lassen Sie das Feld leer und lassen das Banner window.axitraceConsent.grant() aufrufen, wenn der Besucher akzeptiert.</helpText>
         </input-field>
     </card>
 

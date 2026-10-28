@@ -160,15 +160,12 @@ final class StorefrontSubscriber implements EventSubscriberInterface
             }
 
             $product = $page->getProduct();
-            if ($product === null) {
-                return;
-            }
 
             $context = [
-                'sku'       => (string) ($product->getProductNumber() ?? ''),
+                'sku'       => $product->getProductNumber(),
                 'productId' => (string) $product->getId(),
                 'name'      => (string) $product->getTranslation('name'),
-                'price'     => (float) ($product->getCalculatedPrice()?->getUnitPrice() ?? 0),
+                'price'     => (float) $product->getCalculatedPrice()->getUnitPrice(),
                 'currency'  => $event->getSalesChannelContext()->getCurrency()->getIsoCode(),
                 'brand'     => (string) ($product->getManufacturer()?->getTranslation('name') ?? $product->getManufacturer()?->getName() ?? ''),
                 'category'  => (string) ($product->getCategories()?->first()?->getTranslation('name') ?? $product->getCategories()?->first()?->getName() ?? ''),

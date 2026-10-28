@@ -104,7 +104,7 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
         $orderCriteria->addAssociation('transactions.paymentMethod');
 
         /** @var OrderEntity|null $order */
-        $order = $this->orderRepository->search($orderCriteria, $context)->first();
+        $order = $this->orderRepository->search($orderCriteria, $context)->getEntities()->first();
         if ($order === null) {
             $this->logger->critical('AxiTrace: order not found for id=' . $orderId);
             return;

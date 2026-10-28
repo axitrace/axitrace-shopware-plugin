@@ -371,7 +371,9 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
      * Finds the first GA4 per-property session cookie (_ga_<CONTAINER-ID>) and
      * returns its value, or null when none is present/valid.
      *
-     * @param array<string, mixed> $cookies
+     * PHP turns a numeric cookie name into an integer key, hence array-key.
+     *
+     * @param array<array-key, mixed> $cookies
      */
     private function findGaSessionCookie(array $cookies): ?string
     {

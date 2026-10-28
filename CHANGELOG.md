@@ -5,6 +5,13 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-10-28
+
+### Changed
+- Prepared for the Shopware Store: a 256 px plugin icon, German extension description and links, and settings help texts without long dashes.
+- The retry task writes its results once per run instead of once per queued event, and runs in a CLI context.
+- Removed checks for values Shopware never leaves empty (order shipping costs, product page product, product number and price).
+
 ## [0.6.0] - 2026-10-17
 
 ### Added
