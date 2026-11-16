@@ -11,6 +11,7 @@ use AxitraceShopware6\Exception\IngestionUnreachableException;
 use AxitraceShopware6\Exclusion\CustomerGroupExclusion;
 use AxitraceShopware6\HttpClient\IngestionApiClient;
 use AxitraceShopware6\Normalizer\OrderEventNormalizer;
+use AxitraceShopware6\Order\PaidTransactionResolver;
 use AxitraceShopware6\ScheduledTask\FailedEventQueue;
 use Psr\Log\LoggerInterface;
 use Shopware\Core\Checkout\Order\Event\OrderStateMachineStateChangeEvent;
@@ -52,6 +53,7 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
         private readonly EntityRepository $orderRepository,
         private readonly FailedEventQueue $failedEventQueue,
         private readonly LoggerInterface $logger,
+        private readonly PaidTransactionResolver $paidTransactionResolver,
     ) {
     }
 
@@ -152,7 +154,7 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
 
         // Resolve the transaction id that just transitioned to paid so the
         // UUID v5 composite key matches what the Go ingestion-api computes.
-        $transactionId = $this->resolvePaidTransactionId($order);
+        $transactionId = $this->paidTransactionResolver->eventTransactionId($order);
         if ($transactionId === '') {
             $this->logger->critical('AxiTrace: paid transaction not found on order ' . $orderId);
             return;
@@ -179,45 +181,5 @@ final class OrderPaidSubscriber implements EventSubscriberInterface
             $this->failedEventQueue->enqueue($eventId, $payload, FailedEventQueue::ENDPOINT_PIXEL, $salesChannelId, $e, $context);
             $this->config->recordFailure($e->getMessage(), $salesChannelId);
         }
-    }
-
-    /**
-     * Returns the id of the most-recent transaction on the order whose state is
-     * "paid" — that is the transaction the OrderStateMachineStateChangeEvent
-     * we are handling refers to.  If the order has only one transaction
-     * (the common case), returns its id directly.
-     */
-    private function resolvePaidTransactionId(OrderEntity $order): string
-    {
-        $transactions = $order->getTransactions();
-        if ($transactions === null || $transactions->count() === 0) {
-            return '';
-        }
-
-        if ($transactions->count() === 1) {
-            return (string) $transactions->first()?->getId();
-        }
-
-        // Multi-transaction order — pick the most recent one in "paid" state.
-        $paidTransactionId = '';
-        $latest            = null;
-        foreach ($transactions as $tx) {
-            $state = $tx->getStateMachineState()?->getTechnicalName();
-            if ($state !== 'paid') {
-                continue;
-            }
-            $updatedAt = $tx->getUpdatedAt() ?? $tx->getCreatedAt();
-            if ($latest === null || ($updatedAt !== null && $updatedAt > $latest)) {
-                $latest            = $updatedAt;
-                $paidTransactionId = (string) $tx->getId();
-            }
-        }
-
-        // Fallback: if no transaction is in paid state (race condition), use the last one.
-        if ($paidTransactionId === '') {
-            $paidTransactionId = (string) $transactions->last()?->getId();
-        }
-
-        return $paidTransactionId;
     }
 }

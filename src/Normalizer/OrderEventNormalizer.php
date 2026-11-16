@@ -75,7 +75,7 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  */
 final class OrderEventNormalizer
 {
-    private const PLUGIN_VERSION = '0.6.3';
+    private const PLUGIN_VERSION = '0.7.0';
     private const EXTERNAL_ID_PREFIX = 'shopware:';
     private const SDK_VERSION    = 'shopware-1.0';
     private const SOURCE         = 'shopware';
@@ -130,20 +130,10 @@ final class OrderEventNormalizer
         $orderCustomer  = $order->getOrderCustomer();
         $lineItems      = $order->getLineItems();
 
-        // Order amounts. Shopware always exposes the gross and net grand totals
-        // and the shipping breakdown as a CalculatedPrice (never null).
         $amountTotal   = (float) $order->getAmountTotal();
         $amountNet     = (float) $order->getAmountNet();
-        $shippingCosts = $order->getShippingCosts();
-        $shippingTax   = (float) $shippingCosts->getCalculatedTaxes()->getAmount();
-        $shippingGross = (float) $shippingCosts->getTotalPrice();
-        // On a net-priced order (B2B tax status "net") Shopware's shipping total
-        // is NET and the tax comes on top; on gross and tax-free orders the total
-        // already is what the buyer paid. Reported shipping is always gross.
-        if ($this->taxStatus($order) === CartPrice::TAX_STATE_NET) {
-            $shippingGross += $shippingTax;
-        }
-        $revenueAmount = $this->valueResolver->resolve($valueBasis, $amountTotal, $amountNet, $shippingGross, $shippingTax);
+        $shippingGross = $this->grossShipping($order);
+        $revenueAmount = $this->conversionValue($order, $valueBasis);
 
         $products = [];
         if ($lineItems !== null) {
@@ -405,6 +395,42 @@ final class OrderEventNormalizer
         $currentAt = $current->getCreatedAt();
 
         return $candidateAt !== null && ($currentAt === null || $candidateAt >= $currentAt);
+    }
+
+    /**
+     * The purchase value reported to every platform for this order under the
+     * merchant's value basis. The server-side purchase and the browser-pixel
+     * Purchase on the order confirmation page both read it here, so the two legs
+     * Meta and TikTok deduplicate always carry the same value.
+     */
+    public function conversionValue(OrderEntity $order, ConversionValueBasis $valueBasis): float
+    {
+        $shippingTax = (float) $order->getShippingCosts()->getCalculatedTaxes()->getAmount();
+
+        return $this->valueResolver->resolve(
+            $valueBasis,
+            (float) $order->getAmountTotal(),
+            (float) $order->getAmountNet(),
+            $this->grossShipping($order),
+            $shippingTax,
+        );
+    }
+
+    /**
+     * Shipping as the buyer paid it. Shopware always exposes the shipping
+     * breakdown as a CalculatedPrice (never null). On a net-priced order (B2B
+     * tax status "net") its total is NET and the tax comes on top; on gross and
+     * tax-free orders the total already is what the buyer paid.
+     */
+    private function grossShipping(OrderEntity $order): float
+    {
+        $shippingCosts = $order->getShippingCosts();
+        $shippingGross = (float) $shippingCosts->getTotalPrice();
+        if ($this->taxStatus($order) === CartPrice::TAX_STATE_NET) {
+            $shippingGross += (float) $shippingCosts->getCalculatedTaxes()->getAmount();
+        }
+
+        return $shippingGross;
     }
 
     private function taxStatus(OrderEntity $order): ?string

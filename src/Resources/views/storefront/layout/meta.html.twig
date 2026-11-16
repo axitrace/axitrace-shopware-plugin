@@ -27,6 +27,22 @@
                 {{ axitraceCheckoutContext | json_encode(15) | raw }}
             </script>
         {% endif %}
+        {% if axitracePurchaseContext is defined and axitracePurchaseContext is not null %}
+            <script type="application/json" id="axitrace-purchase-context">
+                {{ axitracePurchaseContext | json_encode(15) | raw }}
+            </script>
+        {% endif %}
+        {% if axitracePurchaseContextError is defined %}
+            <script>
+                document.addEventListener('DOMContentLoaded', function () {
+                    var error = document.createElement('div');
+                    error.setAttribute('role', 'alert');
+                    error.className = 'alert alert-danger';
+                    error.textContent = 'AxiTrace purchase context could not be loaded. Please contact the store administrator.';
+                    document.body.insertBefore(error, document.body.firstChild);
+                });
+            </script>
+        {% endif %}
         {% if axitraceCheckoutContextError is defined %}
             <script>
                 document.addEventListener('DOMContentLoaded', function () {

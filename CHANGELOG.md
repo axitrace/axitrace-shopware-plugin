@@ -5,6 +5,15 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-11-16
+
+### Added
+- **Browser `Purchase` deduplicated with the server-side purchase.** On the order confirmation page the plugin renders the purchase's event id (the same UUID v5 of the order and its paid transaction the server-side purchase carries), and the AxiTrace SDK fires the shop's own pixels with it: Meta `Purchase`, TikTok `CompletePayment`, Pinterest `checkout`, Microsoft `purchase`. Each platform deduplicates the two legs and counts the order once, as in Meta's recommended redundant setup. The browser event goes only to the pixels, never to AxiTrace, so the server-side purchase (with costs, customer data and the consent decision) stays the only one stored.
+- The browser `Purchase` follows the server-side rules: it fires only when the order's payment is already Paid when the confirmation page opens (an order paid later, such as bank transfer or cash on delivery, is reported server-side only), never for an excluded customer group or a refused server-side consent, with the configured conversion value basis, and once per order (a reload does not fire it again).
+
+### Changed
+- A shop's own browser `Purchase` tag (theme, Google Tag Manager, another extension) must be removed: it carries a different event id and would be counted a second time.
+
 ## [0.6.3] - 2026-10-28
 
 ### Fixed

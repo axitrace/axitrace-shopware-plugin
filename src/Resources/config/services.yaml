@@ -29,6 +29,7 @@ services:
             - '@AxitraceShopware6\Exclusion\CustomerGroupExclusion'
             - '@router'
             - '@logger'
+            - '@AxitraceShopware6\Storefront\PurchaseContextProvider'
         tags:
             - kernel.event_subscriber
 
@@ -61,6 +62,19 @@ services:
             - messenger.message_handler
 
     AxitraceShopware6\EventId\UuidV5Generator: ~
+
+    AxitraceShopware6\Order\PaidTransactionResolver: ~
+
+    AxitraceShopware6\Storefront\PurchaseContextProvider:
+        arguments:
+            - '@order.repository'
+            - '@AxitraceShopware6\Config\PluginConfig'
+            - '@AxitraceShopware6\Consent\ConsentGate'
+            - '@AxitraceShopware6\Exclusion\CustomerGroupExclusion'
+            - '@AxitraceShopware6\Normalizer\OrderEventNormalizer'
+            - '@AxitraceShopware6\Normalizer\PinterestCatalogIdResolver'
+            - '@AxitraceShopware6\Order\PaidTransactionResolver'
+            - '@AxitraceShopware6\EventId\UuidV5Generator'
 
     AxitraceShopware6\Normalizer\OrderEventNormalizer: ~
 
@@ -96,6 +110,7 @@ services:
             - '@order.repository'
             - '@AxitraceShopware6\ScheduledTask\FailedEventQueue'
             - '@logger'
+            - '@AxitraceShopware6\Order\PaidTransactionResolver'
         tags:
             - kernel.event_subscriber
 

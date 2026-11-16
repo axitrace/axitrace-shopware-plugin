@@ -12,6 +12,7 @@ use AxitraceShopware6\Normalizer\ConversionValueBasis;
 use AxitraceShopware6\EventId\UuidV5Generator;
 use AxitraceShopware6\HttpClient\IngestionApiClient;
 use AxitraceShopware6\Normalizer\OrderEventNormalizer;
+use AxitraceShopware6\Order\PaidTransactionResolver;
 use AxitraceShopware6\ScheduledTask\FailedEventQueue;
 use AxitraceShopware6\Subscriber\OrderPlacedSubscriber;
 use AxitraceShopware6\Subscriber\OrderPaidSubscriber;
@@ -142,6 +143,7 @@ final class OrderPaidSubscriberTest extends TestCase
             $this->orderRepository,
             new FailedEventQueue($this->failedEventRepository, $this->logger),
             $this->logger,
+            new PaidTransactionResolver(),
         );
     }
 

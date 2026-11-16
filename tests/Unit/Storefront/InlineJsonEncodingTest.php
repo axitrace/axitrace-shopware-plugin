@@ -31,7 +31,8 @@ final class InlineJsonEncodingTest extends TestCase
     {
         $template = file_get_contents(__DIR__ . '/../../../src/Resources/views/storefront/layout/meta.html.twig');
         self::assertIsString($template);
-        self::assertSame(3, substr_count($template, 'json_encode(15)'), 'Config, product and checkout blocks must all use JSON_HEX flags.');
+        self::assertSame(4, substr_count($template, 'json_encode(15)'), 'Config, product, checkout and purchase blocks must all use JSON_HEX flags.');
+        self::assertSame(4, substr_count($template, 'json_encode'), 'Every inline data block must pass the JSON_HEX flags.');
         self::assertStringNotContainsString('json_encode(960)', $template);
     }
 }

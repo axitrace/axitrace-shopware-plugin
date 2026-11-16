@@ -7,10 +7,12 @@ namespace AxitraceShopware6\Subscriber;
 use AxitraceShopware6\Config\PluginConfig;
 use AxitraceShopware6\Exclusion\CustomerGroupExclusion;
 use AxitraceShopware6\Normalizer\PinterestCatalogIdResolver;
+use AxitraceShopware6\Storefront\PurchaseContextProvider;
 use Psr\Log\LoggerInterface;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Storefront\Event\StorefrontRenderEvent;
 use Shopware\Storefront\Page\Checkout\Confirm\CheckoutConfirmPage;
+use Shopware\Storefront\Page\Checkout\Finish\CheckoutFinishPage;
 use Shopware\Storefront\Page\Product\ProductPage;
 use Shopware\Storefront\Page\Product\ProductPageCriteriaEvent;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
@@ -33,6 +35,7 @@ final class StorefrontSubscriber implements EventSubscriberInterface
         private readonly CustomerGroupExclusion $customerGroupExclusion,
         private readonly UrlGeneratorInterface $urlGenerator,
         private readonly LoggerInterface $logger,
+        private readonly PurchaseContextProvider $purchaseContextProvider,
     ) {
     }
 
@@ -134,6 +137,10 @@ final class StorefrontSubscriber implements EventSubscriberInterface
         $event->setParameter('axitraceScriptUrl', $sdkBaseUrl . '/axitrack.js');
 
         $this->injectProductContext($event, $salesChannelId);
+
+        if ($pageType === 'purchase') {
+            $this->injectPurchaseContext($event, $salesChannelId);
+        }
 
         if ($pageType === 'checkout') {
             $this->injectCheckoutContext(
@@ -251,6 +258,39 @@ final class StorefrontSubscriber implements EventSubscriberInterface
             $message = $error::class . ': ' . $error->getMessage();
             $this->logger->critical('AxiTrace: checkout context initialization failed: ' . $message);
             $event->setParameter('axitraceCheckoutContextError', $message);
+        }
+    }
+
+    /**
+     * Injects the purchase context on the order confirmation (finish) page: the
+     * event id of the server-side purchase, so the SDK fires the browser-pixel
+     * Purchase under the same id and Meta / TikTok count the order once. Absent
+     * while the order is not paid yet - see PurchaseContextProvider.
+     *
+     * Same failure contract as the other contexts: a failure is logged as
+     * critical and shown, never allowed to break the confirmation page.
+     */
+    private function injectPurchaseContext(StorefrontRenderEvent $event, string $salesChannelId): void
+    {
+        try {
+            $page = $event->getParameters()['page'] ?? null;
+
+            if (!($page instanceof CheckoutFinishPage)) {
+                return;
+            }
+
+            $context = $this->purchaseContextProvider->forOrder(
+                (string) $page->getOrder()->getId(),
+                $salesChannelId,
+                $event->getSalesChannelContext()->getContext(),
+            );
+            if ($context !== null) {
+                $event->setParameter('axitracePurchaseContext', $context);
+            }
+        } catch (\Throwable $error) {
+            $message = $error::class . ': ' . $error->getMessage();
+            $this->logger->critical('AxiTrace: purchase context initialization failed: ' . $message);
+            $event->setParameter('axitracePurchaseContextError', $message);
         }
     }
 

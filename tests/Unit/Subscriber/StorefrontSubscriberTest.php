@@ -6,9 +6,15 @@ namespace AxitraceShopware6\Tests\Unit\Subscriber;
 
 use AxitraceShopware6\Config\AxitraceCrypto;
 use AxitraceShopware6\Config\PluginConfig;
+use AxitraceShopware6\Consent\ConsentGate;
+use AxitraceShopware6\EventId\UuidV5Generator;
 use AxitraceShopware6\Exclusion\CustomerGroupExclusion;
+use AxitraceShopware6\Normalizer\OrderEventNormalizer;
 use AxitraceShopware6\Normalizer\PinterestCatalogIdResolver;
+use AxitraceShopware6\Order\PaidTransactionResolver;
+use AxitraceShopware6\Storefront\PurchaseContextProvider;
 use AxitraceShopware6\Subscriber\StorefrontSubscriber;
+use AxitraceShopware6\Tests\Unit\Normalizer\OrderFixtures;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 use Shopware\Core\Checkout\Cart\Cart;
@@ -20,13 +26,19 @@ use Shopware\Core\Checkout\Cart\Tax\Struct\TaxRuleCollection;
 use Shopware\Core\Content\Category\CategoryCollection;
 use Shopware\Core\Content\Category\CategoryEntity;
 use Shopware\Core\Content\Product\Aggregate\ProductManufacturer\ProductManufacturerEntity;
+use Shopware\Core\Checkout\Order\OrderCollection;
+use Shopware\Core\Checkout\Order\OrderEntity;
 use Shopware\Core\Content\Product\SalesChannel\SalesChannelProductEntity;
+use Shopware\Core\Framework\Context;
+use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\EntitySearchResult;
 use Shopware\Core\System\Currency\CurrencyEntity;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Shopware\Storefront\Event\StorefrontRenderEvent;
 use Shopware\Storefront\Page\Checkout\Confirm\CheckoutConfirmPage;
+use Shopware\Storefront\Page\Checkout\Finish\CheckoutFinishPage;
 use Shopware\Storefront\Page\Product\ProductPage;
 use Shopware\Storefront\Page\Product\ProductPageCriteriaEvent;
 use Symfony\Component\HttpFoundation\Request;
@@ -171,13 +183,95 @@ final class StorefrontSubscriberTest extends TestCase
         self::assertStringNotContainsString("' + {{ axitraceProductContextError", $template, 'Exception details must not be rendered to shoppers.');
     }
 
+    public function testFinishPageOfAPaidOrderCarriesTheServerSidePurchaseEventId(): void
+    {
+        [$subscriber, $context] = $this->subscriber(finishOrder: $this->finishOrder('paid'));
+        $event = $this->finishPageEvent($context);
+
+        $subscriber->onStorefrontRender($event);
+
+        $parameters = $event->getParameters();
+        self::assertSame('purchase', $parameters['axitraceConfig']['pageType']);
+        self::assertSame(
+            (new UuidV5Generator())->forOrder(OrderFixtures::ORDER_ID, OrderFixtures::TRANSACTION_ID),
+            $parameters['axitracePurchaseContext']['eventId'],
+        );
+        self::assertSame('10042', $parameters['axitracePurchaseContext']['orderNumber']);
+    }
+
+    public function testFinishPageOfAnOrderAwaitingPaymentHasNoPurchaseContext(): void
+    {
+        [$subscriber, $context] = $this->subscriber(finishOrder: $this->finishOrder('open'));
+        $event = $this->finishPageEvent($context);
+
+        $subscriber->onStorefrontRender($event);
+
+        self::assertArrayNotHasKey('axitracePurchaseContext', $event->getParameters());
+        self::assertArrayNotHasKey('axitracePurchaseContextError', $event->getParameters());
+    }
+
+    public function testOnlyTheFinishPageCarriesAPurchaseContext(): void
+    {
+        [$subscriber, $context] = $this->subscriber(finishOrder: $this->finishOrder('paid'));
+        $page = new CheckoutFinishPage();
+        $page->setOrder($this->finishOrder('paid'));
+        $request = Request::create('/checkout/confirm');
+        $request->attributes->set('_route', 'frontend.checkout.confirm.page');
+        $event = new StorefrontRenderEvent('view', ['page' => $page], $request, $context);
+
+        $subscriber->onStorefrontRender($event);
+
+        self::assertArrayNotHasKey('axitracePurchaseContext', $event->getParameters());
+    }
+
+    public function testPurchaseContextFailureIsLoggedAndExposedToTemplate(): void
+    {
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects(self::once())->method('critical')->with(self::stringContains('purchase context initialization failed'));
+        [$subscriber, $context] = $this->subscriber($logger, finishOrder: $this->finishOrder('paid'), repositoryFails: true);
+        $event = $this->finishPageEvent($context);
+
+        $subscriber->onStorefrontRender($event);
+
+        self::assertStringContainsString('RuntimeException: database gone', $event->getParameters()['axitracePurchaseContextError']);
+        self::assertArrayNotHasKey('axitracePurchaseContext', $event->getParameters());
+
+        $template = file_get_contents(__DIR__ . '/../../../src/Resources/views/storefront/layout/meta.html.twig');
+        self::assertIsString($template);
+        self::assertStringContainsString('id="axitrace-purchase-context"', $template);
+        self::assertStringContainsString('AxiTrace purchase context could not be loaded.', $template);
+    }
+
+    private function finishOrder(string $transactionState): OrderEntity
+    {
+        $order = OrderFixtures::order([OrderFixtures::lineItem(null)], [OrderFixtures::transaction($transactionState)]);
+        $order->setSalesChannelId('sales-channel');
+
+        return $order;
+    }
+
+    private function finishPageEvent(SalesChannelContext $context): StorefrontRenderEvent
+    {
+        $page = new CheckoutFinishPage();
+        $page->setOrder(OrderFixtures::order([], []));
+        $request = Request::create('/checkout/finish');
+        $request->attributes->set('_route', 'frontend.checkout.finish.page');
+
+        return new StorefrontRenderEvent('view', ['page' => $page], $request, $context);
+    }
+
     /**
      * @param list<string> $excludedGroups
      *
      * @return array{StorefrontSubscriber, SalesChannelContext}
      */
-    private function subscriber(?LoggerInterface $logger = null, bool $enabled = true, array $excludedGroups = []): array
-    {
+    private function subscriber(
+        ?LoggerInterface $logger = null,
+        bool $enabled = true,
+        array $excludedGroups = [],
+        ?OrderEntity $finishOrder = null,
+        bool $repositoryFails = false,
+    ): array {
         $configService = $this->createMock(SystemConfigService::class);
         $configService->method('get')->willReturnCallback(static fn (string $key) => match ($key) {
             'AxitraceShopware6.config.enabled' => $enabled,
@@ -198,7 +292,19 @@ final class StorefrontSubscriberTest extends TestCase
         $context->method('getSalesChannelId')->willReturn('sales-channel');
         $context->method('getCurrency')->willReturn($currency);
 
+        $context->method('getContext')->willReturn(Context::createDefaultContext());
+
         $config = new PluginConfig($configService, new AxitraceCrypto('secret'), $logger);
+
+        $orderRepository = $this->createMock(EntityRepository::class);
+        $orderRepository->method('search')->willReturnCallback(static function (Criteria $criteria) use ($finishOrder, $repositoryFails): EntitySearchResult {
+            if ($repositoryFails) {
+                throw new \RuntimeException('database gone');
+            }
+            $orders = new OrderCollection($finishOrder !== null ? [$finishOrder] : []);
+
+            return new EntitySearchResult('order', $orders->count(), $orders, null, $criteria, Context::createDefaultContext());
+        });
 
         return [new StorefrontSubscriber(
             $config,
@@ -206,6 +312,16 @@ final class StorefrontSubscriberTest extends TestCase
             new CustomerGroupExclusion($config),
             $router,
             $logger,
+            new PurchaseContextProvider(
+                $orderRepository,
+                $config,
+                new ConsentGate(),
+                new CustomerGroupExclusion($config),
+                new OrderEventNormalizer(),
+                new PinterestCatalogIdResolver(),
+                new PaidTransactionResolver(),
+                new UuidV5Generator(),
+            ),
         ), $context];
     }
 
