@@ -95,6 +95,20 @@
     </card>
 
     <card>
+        <title>Store domain verification</title>
+        <title lang="de-DE">Verifizierung der Shop-Domain</title>
+
+        <input-field type="textarea">
+            <name>storeDomainStatus</name>
+            <label>Status (read-only)</label>
+            <label lang="de-DE">Status (nur lesen)</label>
+            <disabled>true</disabled>
+            <helpText>AxiTrace accepts browser events (page views, add-to-cart, checkout) only from verified domains. The plugin verifies every storefront domain of a Sales Channel with a public key automatically: when you save these settings, when the plugin is activated or updated, and once a day. AxiTrace checks it by opening https://your-domain/axitrace/domain-proof, so that address must not be blocked. Reload this page after saving to see the new status.</helpText>
+            <helpText lang="de-DE">AxiTrace akzeptiert Browser-Ereignisse (Seitenaufrufe, Warenkorb, Checkout) nur von verifizierten Domains. Das Plugin verifiziert jede Storefront-Domain eines Verkaufskanals mit Public Key automatisch: beim Speichern dieser Einstellungen, beim Aktivieren oder Aktualisieren des Plugins und einmal täglich. AxiTrace prüft dazu https://ihre-domain/axitrace/domain-proof, diese Adresse darf also nicht blockiert sein. Laden Sie diese Seite nach dem Speichern neu, um den neuen Status zu sehen.</helpText>
+        </input-field>
+    </card>
+
+    <card>
         <title>Cookie consent</title>
         <title lang="de-DE">Cookie-Einwilligung</title>
 

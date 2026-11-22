@@ -5,6 +5,13 @@ All notable changes to the AxiTrace Shopware 6 plugin will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-11-22
+
+### Added
+- **Storefront domains are verified in AxiTrace automatically.** AxiTrace accepts browser events (page views, add-to-cart, checkout) only from verified domains of the workspace; a shop whose domain was never added in the AxiTrace panel lost all of them while purchases still arrived from the server. The plugin now asks AxiTrace to verify every domain of each active storefront Sales Channel that has a public key (grouped per key, the secret key as authentication when set), after the settings are saved, when the plugin is activated or updated, and once a day (scheduled task `axitrace.claim_store_domain`, due at once after the update).
+- New storefront route `/axitrace/domain-proof`, which AxiTrace opens to confirm the domain belongs to the shop: it answers with the public key of the Sales Channel serving that domain and, with a secret key, an HMAC signature. No session, login or cookie consent is needed, it answers in maintenance mode and is never cached.
+- A read-only **Store domain verification** status in the plugin settings says per domain whether it is verified, still pending, or, in one sentence, what is wrong and how to fix it.
+
 ## [0.7.0] - 2026-11-16
 
 ### Added

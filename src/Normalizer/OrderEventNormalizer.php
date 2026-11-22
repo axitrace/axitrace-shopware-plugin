@@ -7,6 +7,7 @@ namespace AxitraceShopware6\Normalizer;
 use AxitraceShopware6\ClickId\PersistedClickIdReader;
 use AxitraceShopware6\Consent\ConsentGate;
 use AxitraceShopware6\Config\PinterestCatalogIdMode;
+use AxitraceShopware6\PluginVersion;
 use AxitraceShopware6\Subscriber\OrderPlacedSubscriber;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Core\Checkout\Cart\Price\Struct\CartPrice;
@@ -75,7 +76,7 @@ use Shopware\Core\Checkout\Order\OrderEntity;
  */
 final class OrderEventNormalizer
 {
-    private const PLUGIN_VERSION = '0.7.0';
+    private const PLUGIN_VERSION = PluginVersion::VERSION;
     private const EXTERNAL_ID_PREFIX = 'shopware:';
     private const SDK_VERSION    = 'shopware-1.0';
     private const SOURCE         = 'shopware';

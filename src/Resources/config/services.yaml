@@ -63,6 +63,43 @@ services:
 
     AxitraceShopware6\EventId\UuidV5Generator: ~
 
+    # Public: the plugin bootstrap claims on activate/postUpdate.
+    AxitraceShopware6\Domain\StoreDomainClaimer:
+        public: true
+        arguments:
+            - '@http_client'
+            - '@sales_channel_domain.repository'
+            - '@AxitraceShopware6\Config\PluginConfig'
+            - '@logger'
+            - '@clock'
+            - '%env(default::AXITRACE_ADMIN_BASE_URL)%'
+
+    AxitraceShopware6\Subscriber\StoreDomainClaimSubscriber:
+        arguments:
+            - '@AxitraceShopware6\Domain\StoreDomainClaimer'
+            - '@logger'
+        tags:
+            - kernel.event_subscriber
+
+    AxitraceShopware6\ScheduledTask\AxitraceClaimStoreDomainTask:
+        tags:
+            - shopware.scheduled.task
+
+    AxitraceShopware6\ScheduledTask\AxitraceClaimStoreDomainHandler:
+        arguments:
+            - '@scheduled_task.repository'
+            - '@logger'
+            - '@AxitraceShopware6\Domain\StoreDomainClaimer'
+        tags:
+            - messenger.message_handler
+
+    AxitraceShopware6\Storefront\DomainProofController:
+        public: true
+        arguments:
+            - '@AxitraceShopware6\Config\PluginConfig'
+        tags:
+            - controller.service_arguments
+
     AxitraceShopware6\Order\PaidTransactionResolver: ~
 
     AxitraceShopware6\Storefront\PurchaseContextProvider:

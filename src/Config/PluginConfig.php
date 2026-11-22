@@ -333,6 +333,59 @@ final class PluginConfig
     }
 
     // -------------------------------------------------------------------------
+    // Store domain verification (written by StoreDomainClaimer, shop-wide)
+    // -------------------------------------------------------------------------
+
+    /**
+     * The read-only settings field that shows the merchant the verification
+     * outcome. Saving it never triggers a claim (StoreDomainClaimSubscriber).
+     */
+    public const STORE_DOMAIN_STATUS_TEXT_KEY = self::CONFIG_DOMAIN . 'storeDomainStatus';
+
+    /**
+     * The last claim outcome, or null when the shop never claimed.
+     *
+     * @return array{checked_at: string, hosts: list<array{host: string, status: string, reason: string|null, browser_events_rejected: bool}>, error: string|null}|null
+     */
+    public function getStoreDomainStatus(): ?array
+    {
+        $value = $this->systemConfigService->get(self::RUNTIME_DOMAIN . 'storeDomainStatus');
+        if (!is_array($value)) {
+            return null;
+        }
+
+        $hosts = [];
+        foreach (is_array($value['hosts'] ?? null) ? $value['hosts'] : [] as $entry) {
+            if (!is_array($entry) || !is_string($entry['host'] ?? null) || !is_string($entry['status'] ?? null)) {
+                continue;
+            }
+            $hosts[] = [
+                'host'                    => $entry['host'],
+                'status'                  => $entry['status'],
+                'reason'                  => is_string($entry['reason'] ?? null) ? $entry['reason'] : null,
+                'browser_events_rejected' => ($entry['browser_events_rejected'] ?? false) === true,
+            ];
+        }
+
+        return [
+            'checked_at' => is_string($value['checked_at'] ?? null) ? $value['checked_at'] : '',
+            'hosts'      => $hosts,
+            'error'      => is_string($value['error'] ?? null) ? $value['error'] : null,
+        ];
+    }
+
+    /**
+     * Stores the claim outcome and the plain-English line the settings page shows.
+     *
+     * @param array{checked_at: string, hosts: list<array{host: string, status: string, reason: string|null, browser_events_rejected: bool}>, error: string|null} $status
+     */
+    public function setStoreDomainStatus(array $status, string $text): void
+    {
+        $this->systemConfigService->set(self::RUNTIME_DOMAIN . 'storeDomainStatus', $status);
+        $this->systemConfigService->set(self::STORE_DOMAIN_STATUS_TEXT_KEY, $text);
+    }
+
+    // -------------------------------------------------------------------------
     // Runtime failure counters (written by event dispatch, read by admin UI)
     // -------------------------------------------------------------------------
 

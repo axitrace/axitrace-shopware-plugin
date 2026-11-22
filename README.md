@@ -105,7 +105,12 @@ bin/console cache:clear
 9. *(Optional)* Select **Customer groups excluded from tracking**, for example
    your B2B customer group. Customers of those groups are not tracked at all -
    see [Excluding customer groups](#excluding-customer-groups-eg-b2b).
-10. **Save** the configuration.
+10. **Save** the configuration. The plugin then asks AxiTrace to verify your
+   storefront domains (AxiTrace accepts browser events only from verified
+   domains) and shows the outcome under **Store domain verification** after
+   you reload the page. AxiTrace checks each domain by opening
+   `https://<your-domain>/axitrace/domain-proof`, so that address must not be
+   blocked by a firewall or security extension. The check repeats daily.
 11. **Place a test order** in your storefront. Within 1-2 minutes the AxiTrace
    dashboard should show the order on the events feed.
 
