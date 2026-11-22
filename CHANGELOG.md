@@ -10,7 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Storefront domains are verified in AxiTrace automatically.** AxiTrace accepts browser events (page views, add-to-cart, checkout) only from verified domains of the workspace; a shop whose domain was never added in the AxiTrace panel lost all of them while purchases still arrived from the server. The plugin now asks AxiTrace to verify every domain of each active storefront Sales Channel that has a public key (grouped per key, the secret key as authentication when set), after the settings are saved, when the plugin is activated or updated, and once a day (scheduled task `axitrace.claim_store_domain`, due at once after the update).
 - New storefront route `/axitrace/domain-proof`, which AxiTrace opens to confirm the domain belongs to the shop: it answers with the public key of the Sales Channel serving that domain and, with a secret key, an HMAC signature. No session, login or cookie consent is needed, it answers in maintenance mode and is never cached.
-- A read-only **Store domain verification** status in the plugin settings says per domain whether it is verified, still pending, or, in one sentence, what is wrong and how to fix it.
+- A read-only **Store domain verification** status in the plugin settings says per domain whether it is verified, still pending, or, in one sentence, what is wrong and how to fix it. Clicking Save on the settings page (no change needed) verifies again at once.
+
+### Fixed
+- Uninstalling the plugin without keeping its data also removes its own runtime values (failure counters, store domain status) from the system configuration; before, they stayed behind.
 
 ## [0.7.0] - 2026-11-16
 

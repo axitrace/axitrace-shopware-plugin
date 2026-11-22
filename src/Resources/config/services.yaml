@@ -63,7 +63,7 @@ services:
 
     AxitraceShopware6\EventId\UuidV5Generator: ~
 
-    # Public: the plugin bootstrap claims on activate/postUpdate.
+    # Public: the plugin bootstrap claims on postUpdate.
     AxitraceShopware6\Domain\StoreDomainClaimer:
         public: true
         arguments:
@@ -78,6 +78,7 @@ services:
         arguments:
             - '@AxitraceShopware6\Domain\StoreDomainClaimer'
             - '@logger'
+            - '@Doctrine\DBAL\Connection'
         tags:
             - kernel.event_subscriber
 

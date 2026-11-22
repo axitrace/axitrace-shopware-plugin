@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace AxitraceShopware6\Tests\Unit\Domain;
 
+use AxitraceShopware6\AxitraceShopware6;
 use AxitraceShopware6\Config\AxitraceCrypto;
 use AxitraceShopware6\Config\PluginConfig;
 use AxitraceShopware6\Domain\StoreDomainClaimer;
 use AxitraceShopware6\Domain\StoreDomainStatusMessage;
 use AxitraceShopware6\Subscriber\StoreDomainClaimSubscriber;
+use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Shopware\Core\Defaults;
@@ -17,6 +19,9 @@ use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\EntitySearchResult;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
+use Shopware\Core\Framework\Plugin\Context\ActivateContext;
+use Shopware\Core\Framework\Plugin\Event\PluginPostActivateEvent;
+use Shopware\Core\Framework\Plugin\PluginEntity;
 use Shopware\Core\System\SalesChannel\Aggregate\SalesChannelDomain\SalesChannelDomainCollection;
 use Shopware\Core\System\SalesChannel\Aggregate\SalesChannelDomain\SalesChannelDomainEntity;
 use Shopware\Core\System\SystemConfig\Event\SystemConfigChangedEvent;
@@ -155,7 +160,7 @@ final class StoreDomainClaimerTest extends TestCase
     public function testSubscriberClaimsOnceAfterABatchSaveThatChangedAKey(): void
     {
         $claimer = $this->claimer([['channel-a', 'https://shop.example']], ['channel-a' => [self::PK_A, '']], [$this->ok([])]);
-        $subscriber = new StoreDomainClaimSubscriber($claimer, new NullLogger());
+        $subscriber = new StoreDomainClaimSubscriber($claimer, new NullLogger(), $this->pluginTable(true));
 
         $subscriber->onConfigChanged(new SystemConfigChangedEvent('AxitraceShopware6.config.debugMode', true, null));
         $subscriber->onBatchSaved(new SystemConfigMultipleChangedEvent([], null));
@@ -166,6 +171,55 @@ final class StoreDomainClaimerTest extends TestCase
         $subscriber->onBatchSaved(new SystemConfigMultipleChangedEvent([], null));
         $subscriber->onTerminate();
         self::assertCount(1, $this->requests);
+    }
+
+    public function testSubscriberClaimsOnceShopwareStoredThePluginAsActiveAndIgnoresOtherPlugins(): void
+    {
+        $claimer = $this->claimer([['channel-a', 'https://shop.example']], ['channel-a' => [self::PK_A, '']], [$this->ok([])]);
+        $subscriber = new StoreDomainClaimSubscriber($claimer, new NullLogger(), $this->pluginTable(true));
+
+        $subscriber->onPluginActivated($this->activated('Swag\\Other\\SwagOther'));
+        self::assertCount(0, $this->requests, 'Another plugin\'s activation does not claim.');
+
+        $subscriber->onPluginActivated($this->activated(AxitraceShopware6::class));
+        self::assertCount(1, $this->requests);
+        $subscriber->onTerminate();
+        self::assertCount(1, $this->requests, 'The activation claim is not repeated at the end of the request.');
+        self::assertSame('onPluginActivated', StoreDomainClaimSubscriber::getSubscribedEvents()[PluginPostActivateEvent::class]);
+    }
+
+    public function testSubscriberNeverClaimsWhileThePluginIsInactive(): void
+    {
+        // Uninstalling deactivates the plugin, then deletes its settings: those change events must not
+        // write the status rows back.
+        $claimer = $this->claimer([['channel-a', 'https://shop.example']], ['channel-a' => [self::PK_A, '']], [$this->ok([])]);
+        $subscriber = new StoreDomainClaimSubscriber($claimer, new NullLogger(), $this->pluginTable(false));
+
+        $subscriber->onConfigChanged(new SystemConfigChangedEvent('AxitraceShopware6.config.publicKey', null, null));
+        $subscriber->onBatchSaved(new SystemConfigMultipleChangedEvent([], null));
+
+        self::assertSame([], $this->requests);
+        self::assertSame([], $this->stored);
+    }
+
+    private function pluginTable(bool $active): Connection
+    {
+        $connection = $this->createMock(Connection::class);
+        $connection->method('fetchOne')->willReturnCallback(static function (string $sql, array $params) use ($active): string|false {
+            self::assertSame(['baseClass' => AxitraceShopware6::class], $params);
+
+            return $active ? '1' : '0';
+        });
+
+        return $connection;
+    }
+
+    private function activated(string $baseClass): PluginPostActivateEvent
+    {
+        $plugin = new PluginEntity();
+        $plugin->setBaseClass($baseClass);
+
+        return new PluginPostActivateEvent($plugin, $this->createMock(ActivateContext::class));
     }
 
     public function testEveryReasonHasAPlainSentence(): void
