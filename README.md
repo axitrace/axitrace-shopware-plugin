@@ -110,7 +110,9 @@ bin/console cache:clear
    domains) and shows the outcome under **Store domain verification** after
    you reload the page. AxiTrace checks each domain by opening
    `https://<your-domain>/axitrace/domain-proof`, so that address must not be
-   blocked by a firewall or security extension. The check repeats daily.
+   blocked by a firewall or security extension. The check repeats daily; to
+   verify again right away (for example after unblocking that address), click
+   **Save** again - nothing needs to change.
 11. **Place a test order** in your storefront. Within 1-2 minutes the AxiTrace
    dashboard should show the order on the events feed.
 
