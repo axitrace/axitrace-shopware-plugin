@@ -82,9 +82,22 @@ final class StoreDomainClaimSubscriber implements EventSubscriberInterface
         $this->claimIfPending();
     }
 
+    /**
+     * Only with a public key configured (a reactivation): a new install has none
+     * yet, and its first save claims.
+     */
     public function onPluginActivated(PluginPostActivateEvent $event): void
     {
         if ($event->getPlugin()->getBaseClass() !== AxitraceShopware6::class) {
+            return;
+        }
+        try {
+            if ($this->claimer->hostGroups() === []) {
+                return;
+            }
+        } catch (\Throwable $e) {
+            $this->logger->critical('AxiTrace store domain claim after activation failed: ' . $e::class . ': ' . $e->getMessage());
+
             return;
         }
         $this->pending = true;

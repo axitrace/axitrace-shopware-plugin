@@ -21,8 +21,17 @@ final class AxitraceClaimStoreDomainHandler extends ScheduledTaskHandler
         parent::__construct($scheduledTaskRepository, $logger);
     }
 
+    /**
+     * Without a public key there is nothing to claim, and the stored status is
+     * left alone: on a new install the task is due at once and may run (in the
+     * administration's message worker) while the merchant saves the keys, and a
+     * "no public key" outcome must never overwrite the claim of that save.
+     */
     public function run(): void
     {
+        if ($this->claimer->hostGroups() === []) {
+            return;
+        }
         $this->claimer->claimAll();
     }
 }

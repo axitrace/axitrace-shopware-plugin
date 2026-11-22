@@ -9,6 +9,7 @@ use AxitraceShopware6\Config\AxitraceCrypto;
 use AxitraceShopware6\Config\PluginConfig;
 use AxitraceShopware6\Domain\StoreDomainClaimer;
 use AxitraceShopware6\Domain\StoreDomainStatusMessage;
+use AxitraceShopware6\ScheduledTask\AxitraceClaimStoreDomainHandler;
 use AxitraceShopware6\Subscriber\StoreDomainClaimSubscriber;
 use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\TestCase;
@@ -186,6 +187,55 @@ final class StoreDomainClaimerTest extends TestCase
         $subscriber->onTerminate();
         self::assertCount(1, $this->requests, 'The activation claim is not repeated at the end of the request.');
         self::assertSame('onPluginActivated', StoreDomainClaimSubscriber::getSubscribedEvents()[PluginPostActivateEvent::class]);
+    }
+
+    public function testDailyTaskWithoutAPublicKeyLeavesTheStoredStatusAlone(): void
+    {
+        // Due at once after install, the task can run while the merchant saves the keys: its
+        // "no public key" must never overwrite the outcome of that save.
+        $saved = [
+            'checked_at' => '2026-11-22 10:00 UTC',
+            'hosts' => [['host' => 'shop.example', 'status' => 'verified', 'reason' => null, 'browser_events_rejected' => false]],
+            'error' => null,
+        ];
+        $this->stored['AxitraceShopware6.runtime.storeDomainStatus|'] = $saved;
+        $handler = new AxitraceClaimStoreDomainHandler(
+            $this->createMock(EntityRepository::class),
+            new NullLogger(),
+            $this->claimer([['channel-a', 'https://shop.example']], [], []),
+        );
+
+        $handler->run();
+
+        self::assertSame([], $this->requests);
+        self::assertSame(['AxitraceShopware6.runtime.storeDomainStatus|' => $saved], $this->stored);
+    }
+
+    public function testDailyTaskClaimsWithAPublicKey(): void
+    {
+        $handler = new AxitraceClaimStoreDomainHandler(
+            $this->createMock(EntityRepository::class),
+            new NullLogger(),
+            $this->claimer([['channel-a', 'https://shop.example']], ['channel-a' => [self::PK_A, '']], [$this->ok([])]),
+        );
+
+        $handler->run();
+
+        self::assertCount(1, $this->requests);
+    }
+
+    public function testActivationWithoutAPublicKeyClaimsNothing(): void
+    {
+        $subscriber = new StoreDomainClaimSubscriber(
+            $this->claimer([['channel-a', 'https://shop.example']], [], []),
+            new NullLogger(),
+            $this->pluginTable(true),
+        );
+
+        $subscriber->onPluginActivated($this->activated(AxitraceShopware6::class));
+
+        self::assertSame([], $this->requests);
+        self::assertSame([], $this->stored);
     }
 
     public function testSubscriberNeverClaimsWhileThePluginIsInactive(): void
