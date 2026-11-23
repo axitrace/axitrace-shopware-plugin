@@ -166,16 +166,23 @@ final class OrderPlacedSubscriber implements EventSubscriberInterface
     private const AXITRACE_ID_PATTERN = '/^[A-Za-z0-9_-]{8,64}$/';
 
     /**
-     * Facebook Browser ID cookie format: fb.1.<timestamp>.<random_digits>
-     * Mirrors UserIdentityService::isValidFbp() in event-worker.
+     * Optional 5th part of _fbp/_fbc written by Meta's Conversions API Parameter Builder:
+     * 8 base64url characters starting with "AQ", or a legacy 2-character language token.
+     * The cookie is forwarded with it, unchanged. Mirrors MetaCookie in event-worker.
      */
-    private const FBP_PATTERN = '/^fb\.\d+\.\d+\.\d+$/';
+    private const META_APPENDIX = '(?:\.(?:AQ[A-Za-z0-9_-]{6}|AQ|Ag|Aw|BA|BQ|Bg))?';
 
     /**
-     * Facebook Click ID cookie format: fb.1.<timestamp>.<fbclid>
-     * Mirrors UserIdentityService::isValidFbc() in event-worker.
+     * Facebook Browser ID cookie format: fb.1.<timestamp>.<random_digits>[.<appendix>]
+     * Mirrors MetaCookie::FBP_PATTERN in event-worker.
      */
-    private const FBC_PATTERN = '/^fb\.\d+\.\d+\.[A-Za-z0-9_-]+$/';
+    private const FBP_PATTERN = '/^fb\.\d+\.\d+\.\d+' . self::META_APPENDIX . '$/';
+
+    /**
+     * Facebook Click ID cookie format: fb.1.<timestamp>.<fbclid>[.<appendix>]
+     * Mirrors MetaCookie::FBC_PATTERN in event-worker.
+     */
+    private const FBC_PATTERN = '/^fb\.\d+\.\d+\.[A-Za-z0-9_-]+' . self::META_APPENDIX . '$/';
 
     public function __construct(
         private readonly RequestStack $requestStack,
