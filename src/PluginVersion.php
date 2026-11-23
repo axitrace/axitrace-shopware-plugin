@@ -10,5 +10,5 @@ namespace AxitraceShopware6;
  */
 final class PluginVersion
 {
-    public const VERSION = '0.8.0';
+    public const VERSION = '0.8.1';
 }
